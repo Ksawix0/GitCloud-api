@@ -1,0 +1,8 @@
+name: Local
+variables:
+  - name: GitCloudAddress
+    value: http://localhost:5250
+  - secret: true
+    name: GitCloudUsername
+  - secret: true
+    name: GitCloudPasswdHash

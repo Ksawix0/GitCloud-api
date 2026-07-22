@@ -1,0 +1,23 @@
+info:
+  name: LakePut
+  type: http
+  seq: 2
+
+http:
+  method: PUT
+  url: "{{GitCloudAddress}}/lake/{{path}}"
+  body:
+    type: text
+    data: dGVzdA==
+  auth: inherit
+
+runtime:
+  variables:
+    - name: path
+      value: Lake/test
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

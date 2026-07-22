@@ -1,0 +1,27 @@
+info:
+  name: GitCloudLogin
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{GitCloudAddress}}/login"
+  body:
+    type: json
+    data: |-
+      {
+        "username": "{{GitCloudUsername}}",
+        "passwdHash": "{{GitCloudPasswdHash}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: bru.setVar("AccesToken", "Bearer " + res.body.accessToken)
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
