@@ -1,0 +1,25 @@
+@gitCloud_api_HostAddress = http://localhost:5250
+
+GET {{gitCloud_api_HostAddress}}/lake/.gcpasswd
+Accept: application/json
+
+###
+
+PUT {{gitCloud_api_HostAddress}}/lake/Lake/test
+Content-Type: text/plain
+
+dGVzdA==
+###
+
+DELETE {{gitCloud_api_HostAddress}}/lake/.gcpasswd
+Accept: application/json
+
+###
+
+POST {{gitCloud_api_HostAddress}}/login
+
+{
+   "username": "admin",
+   "passwdHash": "$argon2id$v=19$m=4096,t=3,p=1$c29tZXNhbHQ$EFS0W4ghMqXsLkLqtn5kweHhBGOnwYrd/3YX/i0x4Dc"
+}
+###
