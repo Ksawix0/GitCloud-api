@@ -8,11 +8,6 @@ http:
   url: "{{GitCloudAddress}}/authTest"
   auth: inherit
 
-runtime:
-  scripts:
-    - type: before-request
-      code: req.setHeader("Authorization", bru.getVar("AccesToken"))
-
 settings:
   encodeUrl: true
   timeout: 0

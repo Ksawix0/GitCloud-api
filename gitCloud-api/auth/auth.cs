@@ -1,5 +1,4 @@
 ﻿using System.IdentityModel.Tokens.Jwt;
-using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
@@ -72,14 +71,14 @@ public static partial class Auth
             Audience = _jwtConfig.Audience,
             Expires = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays),
             Issuer = _jwtConfig.Issuer,
-            TokenType = "refresh",
             Subject = new ClaimsIdentity([
-                new Claim(ClaimTypes.Name,user.Guid.ToString()),
-                new Claim(ClaimTypes.GivenName, user.Name)
+                new Claim(ClaimTypes.NameIdentifier,user.Guid.ToString()),
+                new Claim(ClaimTypes.GivenName, user.Name),
+                new Claim(ClaimTypes.Role, user.Role)
             ]),
             Claims = new Dictionary<string, object>()
             {
-                { "Admin", user.Admin }
+                { "type", "refresh" }
             },
             SigningCredentials = new SigningCredentials(new EdDsaSecurityKey(_keys), ExtendedSecurityAlgorithms.EdDsa)
         };
@@ -99,14 +98,14 @@ public static partial class Auth
             Audience = _jwtConfig.Audience,
             Expires = DateTime.UtcNow.AddMinutes(_jwtConfig.AccessTokenExpirationTimeInMinutes),
             Issuer = _jwtConfig.Issuer,
-            TokenType = "access",
             Subject = new ClaimsIdentity([
-                new Claim(ClaimTypes.Name,user.Guid.ToString()),
-                new Claim(ClaimTypes.GivenName, user.Name)
+                new Claim(ClaimTypes.NameIdentifier,user.Guid.ToString()),
+                new Claim(ClaimTypes.GivenName, user.Name),
+                new Claim(ClaimTypes.Role, user.Role)
             ]),
             Claims = new Dictionary<string, object>()
             {
-                { "Admin", user.Admin }
+                { "type", "access" }
             },
             SigningCredentials = new SigningCredentials(new EdDsaSecurityKey(_keys), ExtendedSecurityAlgorithms.EdDsa),
         };

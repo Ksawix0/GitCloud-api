@@ -11,7 +11,7 @@ Content-Type: text/plain
 dGVzdA==
 ###
 
-DELETE {{gitCloud_api_HostAddress}}/lake/.gcpasswd
+DELETE {{gitCloud_api_HostAddress}}/lake/.gcpasswd?root=%2F
 Accept: application/json
 
 ###

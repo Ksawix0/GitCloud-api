@@ -18,7 +18,7 @@ http:
 runtime:
   scripts:
     - type: after-response
-      code: bru.setVar("AccesToken", "Bearer " + res.body.accessToken)
+      code: bru.setVar("AccesToken", res.body.accessToken)
 
 settings:
   encodeUrl: true

@@ -5,13 +5,15 @@ info:
 
 http:
   method: GET
-  url: "{{GitCloudAddress}}/lake/{{path}}"
-  auth: inherit
-
-runtime:
-  variables:
+  url: "{{GitCloudAddress}}/lake/:path?root=/"
+  params:
+    - name: root
+      value: /
+      type: query
     - name: path
-      value: Lake/test
+      value: .gcpasswd
+      type: path
+  auth: inherit
 
 settings:
   encodeUrl: true

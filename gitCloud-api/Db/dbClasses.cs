@@ -12,6 +12,11 @@ public partial class Db
         public required Guid Guid { get; set; }
         public required string Name { get; set; }
         public required string PasswdHash { get; set; }
-        public required bool Admin {get; set;}
+        public required string Role {get; set;}
+    }
+    
+    public static class GitCloudDbFilePaths
+    {
+        public static string UserFile { get;} = "/.gcpasswd";
     }
 }

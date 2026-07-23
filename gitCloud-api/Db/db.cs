@@ -14,7 +14,7 @@ public static partial class Db
     public static void Init()
     {
         
-        GetContentClass getResponse = GetLakeRequest(".gcpasswd").Result;
+        GetContentClass getResponse = GetLakeRequest(GitCloudDbFilePaths.UserFile).Result;
         if (getResponse.ErrorCode != null)
         {
             if (getResponse.ErrorCode != 404)
@@ -24,8 +24,8 @@ public static partial class Db
             
             Logger.LogInformation("Didn't found GitCloud .gcpasswd file. Initializing db..");
 
-            GitCloudDb.Users.Add(new GitCloudUser(){  Guid = Guid.Parse("019f862b-4c5f-798e-8141-210243f2a36b"), Name = "admin", PasswdHash = "$argon2id$v=19$m=4096,t=3,p=1$c29tZXNhbHQ$EFS0W4ghMqXsLkLqtn5kweHhBGOnwYrd/3YX/i0x4Dc" , Admin = true});
-            PutContentClass putResponse = PutLakeRequest(".gcpasswd",Convert.ToBase64String(Encoding.UTF8.GetBytes(LakeDbSerializer.UserFileSerializer(GitCloudDb)))).Result;
+            GitCloudDb.Users.Add(new GitCloudUser(){  Guid = Guid.Parse("019f862b-4c5f-798e-8141-210243f2a36b"), Name = "admin", PasswdHash = "$argon2id$v=19$m=4096,t=3,p=1$c29tZXNhbHQ$EFS0W4ghMqXsLkLqtn5kweHhBGOnwYrd/3YX/i0x4Dc" , Role = "Admin"});
+            PutContentClass putResponse = PutLakeRequest(GitCloudDbFilePaths.UserFile,Convert.ToBase64String(Encoding.UTF8.GetBytes(LakeDbSerializer.UserFileSerializer(GitCloudDb)))).Result;
             if (putResponse.ErrorCode != null)
             {
                 throw new Exception($"\nPut error while initializing .gcpasswd file\nError Code: {(short)getResponse.ErrorCode}\nMessage:\n{getResponse.ErrorMessage}");
@@ -48,7 +48,7 @@ public static partial class Db
             
             foreach (GitCloudUser user in db.Users)
             {
-                serializedUsers.Append(string.Join(":",user.Guid, user.Name, user.PasswdHash, user.Admin));
+                serializedUsers.Append(string.Join(":",user.Guid, user.Name, user.PasswdHash, user.Role));
                 serializedUsers.Append("\n");
             }
             
@@ -74,10 +74,7 @@ public static partial class Db
                     Console.WriteLine("User entry is corrupted skipping");
                     continue;
                 }
-
-                bool userAdmin;
-                if (!bool.TryParse(tmp[3],  out userAdmin)){userAdmin = false; }
-                users.Add(new GitCloudUser(){Guid = userGuid, Name = tmp[1], PasswdHash = tmp[2], Admin = userAdmin });
+                users.Add(new GitCloudUser(){Guid = userGuid, Name = tmp[1], PasswdHash = tmp[2], Role = tmp[3] });
             }
 
             return users;

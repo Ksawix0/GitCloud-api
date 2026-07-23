@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 
@@ -23,15 +24,15 @@ public static partial class Lake
         HttpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
         HttpClient.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2026-03-10");
 
-        _lakeUrl = $"https://api.github.com/repos/{userName}/{repositoryName}/contents/";
+        _lakeUrl = $"https://api.github.com/repos/{userName}/{repositoryName}/contents";
 
     }
     
     public static void MapGitCloudLakeEndpoints(this RouteGroupBuilder builder)
     {
         builder.MapGet("/{*path}", LakeGet);
-        builder.MapPut("/{*path}", LakePut);
-        builder.MapDelete("/{*path}", LakeDelete);
+        builder.MapPut("/{*path}", LakePut).RequireAuthorization();
+        builder.MapDelete("/{*path}", LakeDelete).RequireAuthorization();
     } 
     
 
@@ -108,7 +109,7 @@ public static partial class Lake
         return output;
     }
 
-    public static async Task<DeleteContentClass> DelLakeContent(string path, string sha)
+    public static async Task<DeleteContentClass> DelLakeRequest(string path, string sha)
     {
         
         HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Delete, _lakeUrl+path);
@@ -146,18 +147,27 @@ public static partial class Lake
     }
     
     
-    public static async Task<string> LakeGet(string path ,HttpContext ctx)
+    public static async Task<string> LakeGet(string path ,HttpContext context, ClaimsPrincipal user)
     {
+        if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
+        {
+            path = (context.Request.Query["root"].ToString().Replace("%2F", "/") + path);
+        }
+        else
+        {
+            path = "/Lake" + path;
+        }
+        
         GetContentClass output = await GetLakeRequest(path);
         if (output.ErrorCode != null)
         {
             if (output.ErrorCode == 404)
             {
-                ctx.Response.StatusCode = 404;
+                context.Response.StatusCode = 404;
                 return "Not Found";
             }
                 
-            ctx.Response.StatusCode = 500;
+            context.Response.StatusCode = 500;
             if (output.ErrorCode < 0)
             {
                 return output.ErrorMessage!;                
@@ -167,23 +177,32 @@ public static partial class Lake
                 "Github Get Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
         }
 
-        ctx.Response.StatusCode = 200;
-        ctx.Response.ContentType = "application/json";
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
         return JsonSerializer.Serialize(output);
     }
 
-    public static async Task<String> LakePut(string path, HttpContext ctx)
+    public static async Task<String> LakePut(string path, HttpContext context, ClaimsPrincipal user)
     {
+        if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
+        {
+            path = (context.Request.Query["root"].ToString().Replace("%2F", "/") + path);
+        }
+        else
+        {
+            path = "/Lake" + path;
+        }
+        
         Task<GetContentClass> getLakeContentTask = GetLakeRequest(path);
 
-        string bodyContent = await (new StreamReader(ctx.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync();
+        string bodyContent = await (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync();
 
         GetContentClass lakeContent = await getLakeContentTask;
 
         PutContentClass output;
         if (lakeContent.ErrorCode != null)
         {
-            ctx.Response.StatusCode = 500;
+            context.Response.StatusCode = 500;
             if (lakeContent.ErrorCode < 0)
             {
                 return lakeContent.ErrorMessage!;                
@@ -196,19 +215,19 @@ public static partial class Lake
             }
             
             output = await PutLakeRequest(path, bodyContent);
-            ctx.Response.StatusCode = 201;
+            context.Response.StatusCode = 201;
         }
         else
         {
             output = await PutLakeRequest(path, bodyContent, lakeContent.Sha);
-            ctx.Response.StatusCode = 200;
+            context.Response.StatusCode = 200;
         }
         
 
         if (output.ErrorCode != null)
         {
             
-            ctx.Response.StatusCode = 500;
+            context.Response.StatusCode = 500;
             if (output.ErrorCode < 0)
             {
                 return output.ErrorMessage!;                
@@ -219,22 +238,31 @@ public static partial class Lake
         }
         
         
-        ctx.Response.ContentType = "application/json";
+        context.Response.ContentType = "application/json";
         return JsonSerializer.Serialize(output);
     }
 
-    public static async Task<String> LakeDelete(string path, HttpContext ctx)
+    public static async Task<String> LakeDelete(string path, HttpContext context, ClaimsPrincipal user)
     {
+        if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
+        {
+            path = (context.Request.Query["root"].ToString().Replace("%2F", "/") + path);
+        }
+        else
+        {
+            path = "/Lake" + path;
+        }
+        
         GetContentClass lakeContent = await GetLakeRequest(path);
         if (lakeContent.ErrorCode != null)
         {
             if (lakeContent.ErrorCode == 404)
             {
-                ctx.Response.StatusCode = 404;
+                context.Response.StatusCode = 404;
                 return "Not Found";
             }
             
-            ctx.Response.StatusCode = 500;
+            context.Response.StatusCode = 500;
             if (lakeContent.ErrorCode < 0)
             {
                 return lakeContent.ErrorMessage!;                
@@ -244,22 +272,22 @@ public static partial class Lake
                 "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
         }
         
-        DeleteContentClass output = await DelLakeContent(path, lakeContent.Sha);
+        DeleteContentClass output = await DelLakeRequest(path, lakeContent.Sha);
         
         if (output.ErrorCode != null)
         {
-            ctx.Response.StatusCode = 500;
+            context.Response.StatusCode = 500;
             if (lakeContent.ErrorCode < 0)
             {
                 return lakeContent.ErrorMessage!;                
             }
             
             return string.Join("",
-                "Github DEL Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
+                "Github DEL Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
         }
         
-        ctx.Response.StatusCode = 200;
-        ctx.Response.ContentType = "application/json";
+        context.Response.StatusCode = 200;
+        context.Response.ContentType = "application/json";
         return JsonSerializer.Serialize(output);
     }
         

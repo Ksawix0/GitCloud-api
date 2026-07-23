@@ -5,16 +5,18 @@ info:
 
 http:
   method: PUT
-  url: "{{GitCloudAddress}}/lake/{{path}}"
+  url: "{{GitCloudAddress}}/lake/:path?root=/"
+  params:
+    - name: root
+      value: /
+      type: query
+    - name: path
+      value: Lake/test
+      type: path
   body:
     type: text
     data: dGVzdA==
   auth: inherit
-
-runtime:
-  variables:
-    - name: path
-      value: Lake/test
 
 settings:
   encodeUrl: true
