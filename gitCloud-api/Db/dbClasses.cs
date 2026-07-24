@@ -1,4 +1,6 @@
-﻿namespace gitCloud_api;
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace gitCloud_api;
 
 public partial class Db
 {
@@ -17,8 +19,17 @@ public partial class Db
         public required string Role = "";
     }
     
-    public static class GitCloudDbFilePaths
+    [method: SetsRequiredMembers]
+    public class GitCloudRefreshToken()
+    {
+        public required Guid TokenId = Guid.Empty;
+        public required Guid? FamilyId = Guid.Empty;
+        public required DateTime ExpiresAt = DateTime.MinValue;
+    }
+    
+    private static class GitCloudDbFilePaths
     {
         public static string UserFile { get;} = "/.gcpasswd";
+        public static string RefreshTokenFile { get;} = "/.gcrefreshtokens";
     }
 }

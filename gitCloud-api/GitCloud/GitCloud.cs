@@ -1,4 +1,5 @@
-﻿using ScottBrady.IdentityModel.Tokens;
+﻿using Microsoft.IdentityModel.Tokens;
+using ScottBrady.IdentityModel.Tokens;
 
 
 namespace gitCloud_api;
@@ -8,7 +9,7 @@ public static class GitCloud
     private static readonly ILogger Logger = LoggerFactory.Create(builder => builder.AddConsole() ).CreateLogger(typeof(GitCloud));
 
 
-    public static void Init(IConfigurationSection gitCloudConfigurationSection,  IConfigurationSection jwtConfigurationSection, EdDsa keys)
+    public static void Init(IConfigurationSection gitCloudConfigurationSection,  IConfigurationSection jwtConfigurationSection, EdDsa keys, TokenValidationParameters validationParameters)
     {
         GitCloudConfigClass gitCloudConfig = new GitCloudConfigClass();
         JwtConfigClass jwtConfig = new JwtConfigClass();
@@ -26,7 +27,7 @@ public static class GitCloud
 
 
         Lake.InitLake(gitCloudConfig.Token, gitCloudConfig.RepositoryName, gitCloudConfig.UserName);
-        Auth.Init(keys, jwtConfig);
+        Auth.Init(keys, jwtConfig, validationParameters);
         Db.Init();
     }
 

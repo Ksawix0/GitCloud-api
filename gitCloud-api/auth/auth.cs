@@ -3,32 +3,31 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.IdentityModel.Tokens;
-using ScottBrady.IdentityModel.Crypto;
 using ScottBrady.IdentityModel.Tokens;
-
 using static gitCloud_api.Db;
 
 namespace gitCloud_api;
 
 public static partial class Auth
 {
-
     private static readonly ILogger Logger = LoggerFactory.Create(builder => builder.AddConsole() ).CreateLogger(typeof(Auth));
 
     private static EdDsa _keys = null!;
-
     private static JwtConfigClass _jwtConfig = new JwtConfigClass();
+    private static TokenValidationParameters _validationParameters = new();
     
 
-    public static void Init(EdDsa keys, JwtConfigClass jwtConfig)
+    public static void Init(EdDsa keys, JwtConfigClass jwtConfig, TokenValidationParameters validationParameters)
     {
           _keys = keys;
           _jwtConfig = jwtConfig;
+          _validationParameters = validationParameters;
     }
     
     public static void MapGitCloudAuthEndPoints(this RouteGroupBuilder builder)
     {
         builder.MapPost("/login", GitCloudLogin);
+        builder.MapGet("/refreshtokens", GitCloudRefreshTokens);
         builder.MapGet("/authTest", AuthTest).RequireAuthorization();
     }
 
@@ -64,56 +63,95 @@ public static partial class Auth
         GitCloudUser  user = match.First();
         
         //? gen refresh Token
+        Guid refreshTokenGuid = Guid.CreateVersion7();
         JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
-        byte[] privateKeyBytes = Encoding.UTF8.GetBytes(_jwtConfig.PrivateKey);
-        SecurityTokenDescriptor tokenDescriptor = new SecurityTokenDescriptor
+        GitCloudRefreshToken gitCloudTokenHandler = new GitCloudRefreshToken()
         {
-            Audience = _jwtConfig.Audience,
-            Expires = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays),
-            Issuer = _jwtConfig.Issuer,
-            Subject = new ClaimsIdentity([
-                new Claim(ClaimTypes.NameIdentifier,user.Guid.ToString()),
-                new Claim(ClaimTypes.GivenName, user.Name),
-                new Claim(ClaimTypes.Role, user.Role)
-            ]),
-            Claims = new Dictionary<string, object>()
-            {
-                { "type", "refresh" }
-            },
-            SigningCredentials = new SigningCredentials(new EdDsaSecurityKey(_keys), ExtendedSecurityAlgorithms.EdDsa)
+            TokenId = refreshTokenGuid, 
+            FamilyId = refreshTokenGuid, 
+            UserId = user.Guid, 
+            GivenName = user.Name,
+            Role = user.Role
         };
+        
+        SecurityTokenDescriptor tokenDescriptor = gitCloudTokenHandler.ExportRefreshTokenDescriptor();
         SecurityToken token = tokenHandler.CreateToken(tokenDescriptor);
-        //?
         
         context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions
         {
             SameSite = SameSiteMode.Strict,
             HttpOnly = true,
-            MaxAge = TimeSpan.FromDays(_jwtConfig.RefreshTokenExpirationTimeInDays),
+            MaxAge = TimeSpan.FromDays(_jwtConfig.RefreshTokenExpirationTimeInDays).Subtract(TimeSpan.FromMinutes(1)),
         });
+        //?
         
-        //? gen access Token
-        tokenDescriptor = new SecurityTokenDescriptor
-        {
-            Audience = _jwtConfig.Audience,
-            Expires = DateTime.UtcNow.AddMinutes(_jwtConfig.AccessTokenExpirationTimeInMinutes),
-            Issuer = _jwtConfig.Issuer,
-            Subject = new ClaimsIdentity([
-                new Claim(ClaimTypes.NameIdentifier,user.Guid.ToString()),
-                new Claim(ClaimTypes.GivenName, user.Name),
-                new Claim(ClaimTypes.Role, user.Role)
-            ]),
-            Claims = new Dictionary<string, object>()
-            {
-                { "type", "access" }
-            },
-            SigningCredentials = new SigningCredentials(new EdDsaSecurityKey(_keys), ExtendedSecurityAlgorithms.EdDsa),
-        };
+        //? gen refresh Token
+        tokenDescriptor = gitCloudTokenHandler.GenerateAccessTokenDescriptor();
         token = tokenHandler.CreateToken(tokenDescriptor);
         //?
         
+        GitCloudDb.RefreshTokens.Add(new Db.GitCloudRefreshToken(){TokenId = gitCloudTokenHandler.TokenId, FamilyId = gitCloudTokenHandler.FamilyId, ExpiresAt = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays)});
+        
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"));
+    }
+
+    public static async Task GitCloudRefreshTokens(HttpContext context)
+    {
+        if(!context.Request.Cookies.TryGetValue("RefreshToken", out string? refreshTokenRaw)){context.Response.StatusCode = 401; return; }
+
+        SecurityToken refreshToken = new JwtSecurityToken();
+        JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
+        try
+        {
+            ClaimsPrincipal tokenClaimsPrincipal = tokenHandler.ValidateToken(refreshTokenRaw, _validationParameters, out refreshToken );
+            if (GitCloudDb.RefreshTokens.All(token => token.TokenId != Guid.Parse(tokenClaimsPrincipal.Claims.First(claim => claim.Type == "jti").Value)))
+            {
+                GitCloudDb.RefreshTokens.RemoveAll(token => token.FamilyId == Guid.Parse(tokenClaimsPrincipal.Claims.First(claim => claim.Type == "family_jti").Value) );
+                context.Response.StatusCode = 401;
+                return;
+            }
+            
+        }
+        catch (SecurityTokenValidationException e)
+        {
+            if (e is SecurityTokenExpiredException)
+            {
+                JwtSecurityToken secToken = new JwtSecurityTokenHandler().ReadJwtToken(refreshTokenRaw);
+                GitCloudDb.RefreshTokens.Remove( GitCloudDb.RefreshTokens.First(token => token.TokenId == Guid.Parse(secToken.Claims.First(claim => claim.Type == "jit").Value)));
+            }
+            context.Response.StatusCode = 401; 
+            Logger.LogError(e,  e.Message,  e.StackTrace);
+            throw;
+            return;
+        }
+            
+        //? gen refresh Token
+        GitCloudRefreshToken originalGitCloudRefreshToken = new GitCloudRefreshToken().ImportRefreshToken((JwtSecurityToken)refreshToken);
+        SecurityTokenDescriptor tokenDescriptor = originalGitCloudRefreshToken.GenerateNewRefreshTokenDescriptor();
+        SecurityToken token = tokenHandler.CreateToken(tokenDescriptor);
+        
+        GitCloudDb.RefreshTokens.Remove(new Db.GitCloudRefreshToken(){TokenId = originalGitCloudRefreshToken.TokenId, FamilyId = originalGitCloudRefreshToken.FamilyId, ExpiresAt = originalGitCloudRefreshToken.ExpiresAt});
+        GitCloudDb.RefreshTokens.Add(new Db.GitCloudRefreshToken(){TokenId = (Guid)tokenDescriptor.Claims["jti"], FamilyId = (Guid)tokenDescriptor.Claims["family_jti"], ExpiresAt = (DateTime)tokenDescriptor.Expires! });
+    
+        context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions
+        {
+            SameSite = SameSiteMode.Strict,
+            HttpOnly = true,
+            MaxAge = TimeSpan.FromDays(_jwtConfig.RefreshTokenExpirationTimeInDays).Subtract(TimeSpan.FromMinutes(1)),
+        });
+        //?
+    
+        //? gen access Token
+        tokenDescriptor = originalGitCloudRefreshToken.GenerateAccessTokenDescriptor();
+        token = tokenHandler.CreateToken(tokenDescriptor);
+        //?
+        
+        
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"));
+        
+        return;
     }
 
     public static async Task AuthTest(HttpContext context)

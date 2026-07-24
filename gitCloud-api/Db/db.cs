@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Reflection;
+using System.Text;
 using static gitCloud_api.Lake;
 
 namespace gitCloud_api;
@@ -9,11 +10,10 @@ public static partial class Db
     // public static GitCloudDbClass GitCloudDb = new GitCloudDbClass(){Users = []};
     
     private static readonly ILogger Logger = LoggerFactory.Create(builder => builder.AddConsole() ).CreateLogger(typeof(Db));
-    
 
     public static void Init()
     {
-        
+        //? User file init
         GetContentClass getResponse = GetLakeRequest(GitCloudDbFilePaths.UserFile).Result;
         if (getResponse.ErrorCode != null)
         {
@@ -37,6 +37,26 @@ public static partial class Db
         GitCloudDb.Users = GitCloudDbSerializer.FileDeserializer<GitCloudUser>(Encoding.UTF8.GetString(Convert.FromBase64String(getResponse.Content)));
         
         Logger.LogInformation("Loaded {UsersCount} users", GitCloudDb.Users.Count);
+        
+        //? Token file init
+        getResponse = GetLakeRequest(GitCloudDbFilePaths.RefreshTokenFile).Result;
+        if (getResponse.ErrorCode != null)
+        {
+            if (getResponse.ErrorCode != 404)
+            {
+                throw new Exception($"\nFetch get error while initializing db\nError Code: {(short)getResponse.ErrorCode}\nMessage:\n{getResponse.ErrorMessage}");
+            }
+            
+            Logger.LogInformation("Didn't found GitCloud .gcrefreshtokens file. Initializing db..");
+
+            PutContentClass putResponse = PutLakeRequest(GitCloudDbFilePaths.UserFile,Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens)))).Result;
+            if (putResponse.ErrorCode != null)
+            {
+                throw new Exception($"\nPut error while initializing .gcrefreshtokens file\nError Code: {(short)getResponse.ErrorCode}\nMessage:\n{getResponse.ErrorMessage}");
+            }
+            Logger.LogInformation("Initializing .gcrefreshtokens completed. Created default user 'admin' with password 'admin'");
+            return;
+        }
     }
 
     private static class GitCloudDbSerializer 
@@ -104,6 +124,5 @@ public static partial class Db
             return outputList;
         }
     }
-    
     
 }

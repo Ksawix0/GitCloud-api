@@ -18,6 +18,9 @@ request:
   auth:
     type: bearer
     token: "{{AccesToken}}"
+  scripts:
+    - type: after-response
+      code: if(res.status == 401 && !req.getTags().includes("Login")){bru.runRequest("Login");}
 bundled: false
 extensions:
   bruno:
@@ -27,4 +30,4 @@ extensions:
     presets:
       request:
         type: http
-        url: http://localhost:5066
+        url: "{{GitCloudAddress}}"

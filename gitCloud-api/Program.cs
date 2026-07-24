@@ -25,11 +25,8 @@ public static class Program
             X = Convert.FromBase64String(publicKey)
         });
         
-        builder.Services.AddAuthentication(options =>
-        {
-            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-        }).AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
+        //? validation params
+        TokenValidationParameters validationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = false,
@@ -38,8 +35,14 @@ public static class Program
             ValidIssuer = jwtConfig["Issuer"],
             ValidAudience = jwtConfig["Audience"],
             IssuerSigningKey = new EdDsaSecurityKey(keys),
-            ClockSkew =  TimeSpan.Zero
-        });
+            ClockSkew = TimeSpan.Zero
+        };
+        
+        builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        }).AddJwtBearer(options => options.TokenValidationParameters = validationParameters);
 
         builder.Services.AddAuthorization(options =>
         {
@@ -59,7 +62,7 @@ public static class Program
         app.UseAuthorization();
         app.UseHttpsRedirection();
         
-        GitCloud.Init(builder.Configuration.GetSection("GitCloudConfiguration"), jwtConfig, keys);
+        GitCloud.Init(builder.Configuration.GetSection("GitCloudConfiguration"), jwtConfig, keys, validationParameters);
         app.MapGroup("/lake/").MapGitCloudLakeEndpoints();
         app.MapGroup("/").MapGitCloudAuthEndPoints();
         
