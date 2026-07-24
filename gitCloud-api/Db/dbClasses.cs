@@ -2,17 +2,19 @@
 
 public partial class Db
 {
-    public class GitCloudDbClass
+    public static class GitCloudDb
     {
-        public required List<GitCloudUser> Users { get; set;}
+        public static List<GitCloudUser> Users = new List<GitCloudUser>(10);
+        public static List<GitCloudRefreshToken> RefreshTokens = new List<GitCloudRefreshToken>(100); 
     }
 
-    public class GitCloudUser
+    [method: SetsRequiredMembers]
+    public class GitCloudUser()
     {
-        public required Guid Guid { get; set; }
-        public required string Name { get; set; }
-        public required string PasswdHash { get; set; }
-        public required string Role {get; set;}
+        public required Guid Guid = Guid.Empty;
+        public required string Name = "";
+        public required string PasswdHash = "";
+        public required string Role = "";
     }
     
     public static class GitCloudDbFilePaths
