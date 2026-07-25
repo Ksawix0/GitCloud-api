@@ -30,6 +30,6 @@ public partial class Db
     private static class GitCloudDbFilePaths
     {
         public static string UserFile { get;} = "/.gcpasswd";
-        public static string RefreshTokenFile { get;} = "/.gcrefreshtokens";
+        public static string RefreshTokenFile { get;} = "/.gctokens";
     }
 }
