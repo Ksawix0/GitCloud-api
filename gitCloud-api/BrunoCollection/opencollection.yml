@@ -20,7 +20,7 @@ request:
     token: "{{AccesToken}}"
   scripts:
     - type: after-response
-      code: if(res.status == 401 && !req.getTags().includes("Login")){bru.runRequest("Login");}
+      code: if(res.status == 401 && !req.getTags().includes("Login")){bru.runRequest("RefreshTokens");}
 bundled: false
 extensions:
   bruno:

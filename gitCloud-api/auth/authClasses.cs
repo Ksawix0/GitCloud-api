@@ -19,7 +19,7 @@ public static partial class Auth
         public string PasswdHash { get; init; } = "";
     }
 
-    private class GitCloudRefreshToken
+    private class GitCloudRefreshTokenHandler
     {
         public Guid TokenId = Guid.Empty;
         public Guid FamilyId = Guid.Empty;
@@ -27,9 +27,9 @@ public static partial class Auth
         public string GivenName = "";
         public string Role = "";
         public DateTime ExpiresAt = DateTime.MinValue;
-        private List<FieldInfo> _fields = typeof(GitCloudRefreshToken).GetFields(BindingFlags.Public |  BindingFlags.Instance).ToList();
+        private List<FieldInfo> _fields = typeof(GitCloudRefreshTokenHandler).GetFields(BindingFlags.Public |  BindingFlags.Instance).ToList();
 
-        public GitCloudRefreshToken ImportRefreshToken( JwtSecurityToken jwtRefreshToken )
+        public GitCloudRefreshTokenHandler ImportRefreshToken( JwtSecurityToken jwtRefreshToken )
         {
             Claim[] claims = jwtRefreshToken.Claims.ToArray();
             for (int i = 0; i < _fields.Count-1; i++)

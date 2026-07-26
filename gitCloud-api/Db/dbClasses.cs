@@ -22,10 +22,10 @@ public partial class Db
     }
     
     [method: SetsRequiredMembers]
-    public class GitCloudRefreshToken()
+    public class GitCloudRefreshToken() 
     {
         public required Guid TokenId = Guid.Empty;
-        public required Guid? FamilyId = Guid.Empty;
+        public required Guid FamilyId = Guid.Empty;
         public required DateTime ExpiresAt = DateTime.MinValue;
     }
     
@@ -48,6 +48,14 @@ public partial class Db
                 foreach (FieldInfo field in fields)
                 {
                     if (field.Name.Contains("<")) { continue; }
+
+                    if (field.FieldType.Name == "DateTime")
+                    {
+                        DateTime? dateTime = field.GetValue(obj) is DateTime ? (DateTime)field.GetValue(obj) : null;
+                        if(dateTime == null){ continue; }
+                        values.Add(new DateTimeOffset((DateTime)dateTime).ToUnixTimeSeconds().ToString());
+                        continue;
+                    }
 
                     string? value = field.GetValue(obj)?.ToString();
                     if(value == null){ continue; }
@@ -80,7 +88,7 @@ public partial class Db
                 uint count = 0;
                 foreach (Range tmp in data[line].Split(':'))
                 {
-                    if (count > fields.Length)
+                    if (count >= fields.Length)
                     {
                         Console.WriteLine($"Entry for {typeof(T).Name} is corrupted skipping");
                         break;
@@ -89,14 +97,23 @@ public partial class Db
                     switch (fields[count].FieldType.Name)
                     {
                         case "Guid":
-                            Guid guid = Guid.Empty;
-                            if (!Guid.TryParse(data[line][tmp].ToString(), out guid))
+                            if (!Guid.TryParse(data[line][tmp].ToString(), out Guid guid))
                             {
                                 Console.WriteLine($"Entry for {typeof(T).Name} is corrupted skipping");
                                 break;
                             }
                             fields[count].SetValue(outObj, guid);
                             break;
+                        
+                        case "DateTime":
+                            if (!long.TryParse(data[line][tmp].ToString(),  out long time))
+                            {
+                                Console.WriteLine($"Entry for {typeof(T).Name} is corrupted skipping");
+                                break;
+                            }
+                            fields[count].SetValue(outObj, DateTimeOffset.FromUnixTimeSeconds(time).DateTime);
+                            break;
+                        
                         default:
                             fields[count].SetValue(outObj, data[line][tmp].ToString());
                             break;

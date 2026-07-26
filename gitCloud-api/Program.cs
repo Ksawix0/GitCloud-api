@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using ScottBrady.IdentityModel.Crypto;
 using ScottBrady.IdentityModel.Tokens;
+using static gitCloud_api.Db;
 
 namespace gitCloud_api;
 
@@ -49,6 +50,8 @@ public static class Program
             options.DefaultPolicy = new AuthorizationPolicyBuilder().RequireClaim("type", ["access"]).Build();
         });
         //?
+
+        builder.Services.AddHostedService<Db.DbSync>();
         
         var app = builder.Build();
 
@@ -65,8 +68,15 @@ public static class Program
         GitCloud.Init(builder.Configuration.GetSection("GitCloudConfiguration"), jwtConfig, keys, validationParameters);
         app.MapGroup("/lake/").MapGitCloudLakeEndpoints();
         app.MapGroup("/").MapGitCloudAuthEndPoints();
-        
-        
+
+        app.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopped.Register(() =>
+        {
+            ILogger logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger(typeof(Db));
+            logger.LogInformation("Started shutdown db upload");
+            DbSync.UploadUsersUpstream().Wait();
+            DbSync.UploadTokensUpstream().Wait();
+            logger.LogInformation("Db uploaded upstream");
+        });
 
         app.Run();
     }

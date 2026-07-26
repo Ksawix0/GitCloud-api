@@ -2,6 +2,8 @@ info:
   name: Login
   type: http
   seq: 4
+  tags:
+    - Login
 
 http:
   method: POST

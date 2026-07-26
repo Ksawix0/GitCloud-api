@@ -11,7 +11,7 @@ http:
       value: /
       type: query
     - name: path
-      value: .gcpasswd
+      value: .gctokens
       type: path
   auth: inherit
 

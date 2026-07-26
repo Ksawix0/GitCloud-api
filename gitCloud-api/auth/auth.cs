@@ -65,7 +65,7 @@ public static partial class Auth
         //? gen refresh Token
         Guid refreshTokenGuid = Guid.CreateVersion7();
         JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
-        GitCloudRefreshToken gitCloudTokenHandler = new GitCloudRefreshToken()
+        GitCloudRefreshTokenHandler gitCloudTokenHandler = new GitCloudRefreshTokenHandler()
         {
             TokenId = refreshTokenGuid, 
             FamilyId = refreshTokenGuid, 
@@ -127,11 +127,12 @@ public static partial class Auth
         }
             
         //? gen refresh Token
-        GitCloudRefreshToken originalGitCloudRefreshToken = new GitCloudRefreshToken().ImportRefreshToken((JwtSecurityToken)refreshToken);
+        GitCloudRefreshTokenHandler originalGitCloudRefreshToken = new GitCloudRefreshTokenHandler().ImportRefreshToken((JwtSecurityToken)refreshToken);
         SecurityTokenDescriptor tokenDescriptor = originalGitCloudRefreshToken.GenerateNewRefreshTokenDescriptor();
         SecurityToken token = tokenHandler.CreateToken(tokenDescriptor);
         
-        GitCloudDb.RefreshTokens.Remove(new Db.GitCloudRefreshToken(){TokenId = originalGitCloudRefreshToken.TokenId, FamilyId = originalGitCloudRefreshToken.FamilyId, ExpiresAt = originalGitCloudRefreshToken.ExpiresAt});
+        
+        GitCloudDb.RefreshTokens.RemoveAt(GitCloudDb.RefreshTokens.FindIndex(token => token.TokenId == originalGitCloudRefreshToken.TokenId && token.FamilyId == originalGitCloudRefreshToken.FamilyId));
         GitCloudDb.RefreshTokens.Add(new Db.GitCloudRefreshToken(){TokenId = (Guid)tokenDescriptor.Claims["jti"], FamilyId = (Guid)tokenDescriptor.Claims["family_jti"], ExpiresAt = (DateTime)tokenDescriptor.Expires! });
     
         context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions

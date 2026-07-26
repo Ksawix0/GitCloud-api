@@ -2,11 +2,18 @@ info:
   name: RefreshTokens
   type: http
   seq: 5
+  tags:
+    - Login
 
 http:
   method: GET
   url: "{{GitCloudAddress}}/refreshtokens"
   auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: bru.setVar("AccesToken", res.body.accessToken)
 
 settings:
   encodeUrl: true
