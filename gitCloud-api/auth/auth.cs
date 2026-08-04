@@ -31,10 +31,10 @@ public static partial class Auth
         builder.MapGet("/authTest", AuthTest).RequireAuthorization();
     }
 
-    public static async Task GitCloudLogin(HttpContext context)
+    public static async Task GitCloudLogin(HttpContext context, CancellationToken cancellationToken)
     {
         // Logger.LogInformation(await (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync());
-        string bodyContent = await (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync();
+        string bodyContent = await (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync(cancellationToken);
 
         AuthLoginRequest loginRequest = JsonSerializer.Deserialize<AuthLoginRequest>(bodyContent) ?? new AuthLoginRequest();
 
@@ -42,7 +42,7 @@ public static partial class Auth
         {
             byte[] message = Encoding.UTF8.GetBytes("Missing Credentials");
             context.Response.StatusCode = 401;
-            await context.Response.Body.WriteAsync(new ReadOnlyMemory<byte>(message));
+            await context.Response.Body.WriteAsync(new ReadOnlyMemory<byte>(message), cancellationToken);
             return;
         }
         
@@ -56,7 +56,7 @@ public static partial class Auth
         {
             byte[] message = Encoding.UTF8.GetBytes("Invalid Credentials");
             context.Response.StatusCode = 401;
-            await context.Response.Body.WriteAsync(new ReadOnlyMemory<byte>(message));
+            await context.Response.Body.WriteAsync(new ReadOnlyMemory<byte>(message), cancellationToken);
             return;
         }
         
@@ -90,13 +90,13 @@ public static partial class Auth
         token = tokenHandler.CreateToken(tokenDescriptor);
         //?
         
-        GitCloudDb.RefreshTokens.Add(new Db.GitCloudRefreshToken(){TokenId = gitCloudTokenHandler.TokenId, FamilyId = gitCloudTokenHandler.FamilyId, ExpiresAt = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays)});
+        GitCloudDb.RefreshTokens.Add(new GitCloudRefreshToken(){TokenId = gitCloudTokenHandler.TokenId, FamilyId = gitCloudTokenHandler.FamilyId, ExpiresAt = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays)});
         
         context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"));
+        await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"), cancellationToken);
     }
 
-    public static async Task GitCloudRefreshTokens(HttpContext context)
+    public static async Task GitCloudRefreshTokens(HttpContext context, CancellationToken cancellationToken)
     {
         if(!context.Request.Cookies.TryGetValue("RefreshToken", out string? refreshTokenRaw)){context.Response.StatusCode = 401; return; }
 
@@ -123,7 +123,6 @@ public static partial class Auth
             context.Response.StatusCode = 401; 
             Logger.LogError(e,  e.Message,  e.StackTrace);
             throw;
-            return;
         }
             
         //? gen refresh Token
@@ -133,7 +132,7 @@ public static partial class Auth
         
         
         GitCloudDb.RefreshTokens.RemoveAt(GitCloudDb.RefreshTokens.FindIndex(token => token.TokenId == originalGitCloudRefreshToken.TokenId && token.FamilyId == originalGitCloudRefreshToken.FamilyId));
-        GitCloudDb.RefreshTokens.Add(new Db.GitCloudRefreshToken(){TokenId = (Guid)tokenDescriptor.Claims["jti"], FamilyId = (Guid)tokenDescriptor.Claims["family_jti"], ExpiresAt = (DateTime)tokenDescriptor.Expires! });
+        GitCloudDb.RefreshTokens.Add(new GitCloudRefreshToken(){TokenId = (Guid)tokenDescriptor.Claims["jti"], FamilyId = (Guid)tokenDescriptor.Claims["family_jti"], ExpiresAt = (DateTime)tokenDescriptor.Expires! });
     
         context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions
         {
@@ -150,9 +149,7 @@ public static partial class Auth
         
         
         context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"));
-        
-        return;
+        await context.Response.WriteAsync(string.Join("", "{\"accessToken\":\"", tokenHandler.WriteToken(token), "\"}"), cancellationToken);
     }
 
     public static async Task AuthTest(HttpContext context)
