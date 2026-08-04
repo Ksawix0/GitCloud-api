@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using static gitCloud_api.LakeCacheClasses;
+using static gitCloud_api.LakeModifyServiceClasses;
 
 namespace gitCloud_api;
 
@@ -146,9 +147,9 @@ public static partial class Lake
         return output;
 
     }
-    
-    
-    public static async Task<string> LakeGet(string path ,HttpContext context, ClaimsPrincipal user, LakeCache cache)
+
+
+    private static async Task<string> LakeGet(string path ,HttpContext context, ClaimsPrincipal user, LakeCache cache)
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
@@ -216,7 +217,7 @@ public static partial class Lake
         return JsonSerializer.Serialize(output);
     }
 
-    public static async Task<String> LakePut(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache)
+    private static async Task<String> LakePut(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue)
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
@@ -226,70 +227,31 @@ public static partial class Lake
         {
             path = "/Lake" + path;
         }
-
-        PutContentClass output;
+        
         Task<string> bodyContentTask = (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync();
 
-        LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(path);
-        
-        if (cachedItem == null)
+        PutContentClass? output = (PutContentClass?)await modifyQueue.TryEnqueueTaskAsync(new LakePutRequest
         {
-            var lakeContent = await GetLakeRequest(path);
-            
-            if (lakeContent.ErrorCode != null)
-            {
-                context.Response.StatusCode = 500;
-                if (lakeContent.ErrorCode < 0)
-                {
-                    return lakeContent.ErrorMessage!;                
-                }
-
-                if (lakeContent.ErrorCode != 404)
-                {
-                    return string.Join("",
-                        "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
-                }
-            
-                output = await PutLakeRequest(path, await bodyContentTask);
-                context.Response.StatusCode = 201;
-            }else
-            {
-                output = await PutLakeRequest(path, await bodyContentTask, lakeContent.Sha);
-                context.Response.StatusCode = 200;
-            }
-        }
-        else
-        {
-            output = await PutLakeRequest(path, await bodyContentTask, cachedItem.Sha);
-            context.Response.StatusCode = 200;
-        }
-        
-
-        if (output.ErrorCode != null)
-        {
-            
-            context.Response.StatusCode = 500;
-            if (output.ErrorCode < 0)
-            {
-                return output.ErrorMessage!;                
-            }
-
-            return string.Join("",
-                "Github PUT Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
-        }
-
-        await cache.EnqueueAsync(new LakeCacheNewItem
-        {
-            Path = path,
-            Sha = output.Content.Sha,
-            Entities = null
+            BodyContentTask = bodyContentTask,
+            Path = path
         });
-        
+
+        if (output is null)
+        {
+            context.Response.StatusCode = 429;
+            return "Too Many Requests";
+        }
+        context.Response.StatusCode = (output.ErrorCode ?? 200);
+        if(output.ErrorMessage is not null)
+        {
+            return output.ErrorMessage!;
+        }
+
         context.Response.ContentType = "application/json";
         return JsonSerializer.Serialize(output);
     }
 
-    public static async Task<String> LakeDelete(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache)
+    private static async Task<String> LakeDelete(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue)
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
@@ -299,66 +261,25 @@ public static partial class Lake
         {
             path = "/Lake" + path;
         }
-
-        DeleteContentClass output;
         
-        LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(path);
-
-        if (cachedItem == null)
+        DeleteContentClass? output = (DeleteContentClass?)await modifyQueue.TryEnqueueTaskAsync(new LakeDelRequest
         {
-            GetContentClass lakeContent = await GetLakeRequest(path);
-            if (lakeContent.ErrorCode != null)
-            {
-                if (lakeContent.ErrorCode == 404)
-                {
-                    context.Response.StatusCode = 404;
-                    return "Not Found";
-                }
-                
-                context.Response.StatusCode = 500;
-                if (lakeContent.ErrorCode < 0)
-                {
-                    return lakeContent.ErrorMessage!;                
-                }
-                
-                return string.Join("",
-                    "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
-            }
-
-            if (lakeContent.Type == "dir")
-            {
-                context.Response.StatusCode = 409;
-                return "Cannot delete a folder";
-            }
-            
-            output = await DelLakeRequest(path, lakeContent.Sha);
-        }
-        else
+            Path = path
+        });
+        
+        if (output is null)
         {
-            if (cachedItem.Sha == null)
-            {
-                context.Response.StatusCode = 409;
-                return "Cannot delete a folder";
-            }
-            output = await DelLakeRequest(path, cachedItem.Sha);
+            context.Response.StatusCode = 429;
+            return "Too Many Requests";
         }
         
-        
-        if (output.ErrorCode != null)
+        context.Response.StatusCode = (output.ErrorCode ?? 200);
+        if(output.ErrorMessage is not null)
         {
-            context.Response.StatusCode = 500;
-            if (output.ErrorCode < 0)
-            {
-                return output.ErrorMessage!;                
-            }
-            
-            return string.Join("",
-                "Github DEL Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
+            return output.ErrorMessage!;
         }
         
-        context.Response.StatusCode = 200;
         context.Response.ContentType = "application/json";
         return JsonSerializer.Serialize(output);
     }
-        
 }

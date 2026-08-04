@@ -95,6 +95,7 @@ public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
                 }
             }
             
+            request.TaskCompletionSource?.SetResult();
         }
     }
 }

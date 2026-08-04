@@ -1,0 +1,200 @@
+﻿using System.Threading.Channels;
+using static gitCloud_api.LakeModifyServiceClasses;
+using static gitCloud_api.Lake;
+using static gitCloud_api.LakeCacheClasses;
+
+namespace gitCloud_api;
+
+
+public class LakeModifyQueue(int capacity)
+{
+    
+    private Channel<FullLakeModifyRequest> _queue = Channel.CreateBounded<FullLakeModifyRequest>(new BoundedChannelOptions(capacity)
+    {
+        FullMode = BoundedChannelFullMode.Wait
+    });
+    
+    public async Task<IResponseContent?> TryEnqueueTaskAsync(LakeModifyRequest item)
+    {
+        TaskCompletionSource<IResponseContent> tcs = new TaskCompletionSource<IResponseContent>();
+        if (!_queue.Writer.TryWrite(new FullLakeModifyRequest(tcs, item)))
+        {
+            return null;
+        }
+        return await tcs.Task;
+    }
+    
+    public async ValueTask<FullLakeModifyRequest> DequeueAsync(CancellationToken cancellationToken)
+    {
+        return await _queue.Reader.ReadAsync(cancellationToken);
+    }
+}
+
+public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache cache) : BackgroundService
+{
+    private static TaskCompletionSource? _pendingCacheRequest;
+    
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            FullLakeModifyRequest modifyRequest = await modifyQueue.DequeueAsync(stoppingToken);
+
+            switch (modifyRequest.ModifyRequest)
+            {
+                //? Put
+                case LakePutRequest lakePutRequest:
+                {
+                    PutContentClass output = new PutContentClass();
+
+                    _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
+                    LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(lakePutRequest.Path);
+    
+                    if (cachedItem == null)
+                    {
+                        var lakeContent = await GetLakeRequest(lakePutRequest.Path);
+        
+                        if (lakeContent.ErrorCode != null)
+                        {
+                            output.ErrorCode = 500;
+                            if (lakeContent.ErrorCode < 0)
+                            {
+                                output.ErrorMessage = lakeContent.ErrorMessage!;
+                                modifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            } 
+                            else if (lakeContent.ErrorCode != 404)
+                            {
+                                output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
+                                modifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                            else
+                            {
+                                output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask);
+                                output.ErrorCode = 201;
+                            }
+                        }
+                        else
+                        {
+                            output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, lakeContent.Sha);
+                            output.ErrorCode = 200;
+                        }
+                    }
+                    else
+                    {
+                        output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, cachedItem.Sha);
+                        output.ErrorCode = 200;
+                    }
+
+                    
+                    if (output.ErrorCode != null && output.ErrorCode != 200 && output.ErrorCode != 201)
+                    {
+            
+                        if (output.ErrorCode < 0)
+                        {
+                            output.ErrorCode = 500;
+                            output.ErrorMessage = output.ErrorMessage!;
+                            modifyRequest.TaskCompletionSource.SetResult(output);
+                            break;
+                        }
+                        
+                        output.ErrorCode = 500;
+                        output.ErrorMessage = string.Join("", "Github PUT Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
+                        modifyRequest.TaskCompletionSource.SetResult(output);
+                        break;
+                    }
+
+                    _pendingCacheRequest = new TaskCompletionSource();
+                    await cache.EnqueueAsync(new LakeCacheNewItem
+                    {
+                        Path = lakePutRequest.Path,
+                        Sha = output.Content.Sha,
+                        Entities = null,
+                        TaskCompletionSource = _pendingCacheRequest
+                    });
+                    
+                    modifyRequest.TaskCompletionSource.SetResult(output);
+                    break;
+                }
+                
+                //? Del
+                case LakeDelRequest lakeDelRequest:
+                {
+                    DeleteContentClass output = new DeleteContentClass();
+                    
+                    _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
+                    LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(lakeDelRequest.Path);
+
+                    if (cachedItem == null)
+                    {
+                        GetContentClass lakeContent = await GetLakeRequest(lakeDelRequest.Path);
+                        if (lakeContent.ErrorCode != null)
+                        {
+                            if (lakeContent.ErrorCode == 404)
+                            {
+                                output.ErrorCode = 404;
+                                output.ErrorMessage = "Not Found";
+                                modifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                
+                            output.ErrorCode = 500;
+                            if (lakeContent.ErrorCode < 0)
+                            {
+                                output.ErrorMessage = lakeContent.ErrorMessage!;
+                                modifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                
+                            output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
+                            modifyRequest.TaskCompletionSource.SetResult(output);
+                            break;
+                        }
+
+                        if (lakeContent.Type == "dir")
+                        {
+                            output.ErrorCode = 409;
+                            output.ErrorMessage = "Cannot delete a folder";
+                            modifyRequest.TaskCompletionSource.SetResult(output);
+                            break;
+                        }
+            
+                        output = await DelLakeRequest(lakeDelRequest.Path, lakeContent.Sha);
+                    }
+                    else
+                    {
+                        if (cachedItem.Sha == null)
+                        {
+                            output.ErrorCode = 409;
+                            output.ErrorMessage = "Cannot delete a folder";
+                            modifyRequest.TaskCompletionSource.SetResult(output);
+                            break;
+                        }
+                        output = await DelLakeRequest(lakeDelRequest.Path, cachedItem.Sha);
+                    }
+        
+        
+                    if (output.ErrorCode != null)
+                    {
+                        output.ErrorCode = 500;
+                        if (output.ErrorCode < 0)
+                        {
+                            output.ErrorMessage = output.ErrorMessage!;           
+                            modifyRequest.TaskCompletionSource.SetResult(output);
+                            break;
+                        }
+            
+                        output.ErrorMessage = string.Join("", "Github DEL Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
+                    }
+                    
+                    modifyRequest.TaskCompletionSource.SetResult(output);
+                    break;
+                }
+                
+                default:
+                    throw new NotSupportedException($"Type {modifyRequest.GetType()} not supported");
+            }
+        }
+    }
+}

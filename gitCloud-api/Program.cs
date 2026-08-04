@@ -53,7 +53,9 @@ public static class Program
 
         builder.Services.AddHostedService<Db.DbSync>();
         builder.Services.AddSingleton<LakeCache>(_ => new LakeCache(builder.Configuration.GetValue<int>("GitCloudConfiguration:CacheQueueCapacity")));
+        builder.Services.AddSingleton<LakeModifyQueue>(_ => new LakeModifyQueue(builder.Configuration.GetValue<int>("GitCloudConfiguration:ModifyQueueCapacity")));
         builder.Services.AddHostedService<LakeCacheBackgroundService>();
+        builder.Services.AddHostedService<LakeModifyBackgroundService>();
         
         var app = builder.Build();
 

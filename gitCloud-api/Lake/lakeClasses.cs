@@ -4,7 +4,7 @@ namespace gitCloud_api;
 
 public static partial class Lake
 {
-    interface IResponceContent
+    public interface IResponseContent
     {
         [JsonIgnore]
         public short? ErrorCode { get; set; }
@@ -14,7 +14,7 @@ public static partial class Lake
     }
     
     //? get
-    public class GetContentClass: IResponceContent
+    public class GetContentClass: IResponseContent
     {
         [JsonPropertyName("type")]
         public string Type { get; set; }
@@ -63,7 +63,7 @@ public static partial class Lake
     }
     
     //? put
-    public class PutContentClass: IResponceContent
+    public class PutContentClass: IResponseContent
     {
 
         [JsonPropertyName("content")]
@@ -82,7 +82,7 @@ public static partial class Lake
     }
     
     //? del
-    public class DeleteContentClass: IResponceContent
+    public class DeleteContentClass: IResponseContent
     {
         [JsonPropertyName("content")]
         public ContentContentClass? Content { get; set; }

@@ -13,5 +13,6 @@ public static class LakeCacheClasses
         public required string Path;
         public string? Sha;
         public Dictionary<string, LakeCacheItem>? Entities;
+        public TaskCompletionSource? TaskCompletionSource;
     }
 }
