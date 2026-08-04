@@ -12,9 +12,6 @@ public static class Program
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
-        
-        // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-        builder.Services.AddOpenApi();
 
         //? jwt
         IConfigurationSection jwtConfig = builder.Configuration.GetSection("JwtConfiguration");
@@ -58,12 +55,6 @@ public static class Program
         builder.Services.AddHostedService<LakeModifyBackgroundService>();
         
         var app = builder.Build();
-
-        // Configure the HTTP request pipeline.
-        if (app.Environment.IsDevelopment())
-        {
-            app.MapOpenApi();
-        }
 
         app.UseAuthentication();
         app.UseAuthorization();
