@@ -6,6 +6,7 @@ public static class LakeModifyServiceClasses
     public abstract class LakeModifyRequest
     {
         public required string Path;
+        public CancellationToken CancellationToken = CancellationToken.None;
     }
 
     public class LakePutRequest : LakeModifyRequest
