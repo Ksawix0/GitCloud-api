@@ -1,4 +1,5 @@
-﻿using System.Threading.Channels;
+﻿using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using static gitCloud_api.LakeModifyServiceClasses;
 using static gitCloud_api.Lake;
 using static gitCloud_api.LakeCacheClasses;
@@ -9,7 +10,7 @@ namespace gitCloud_api;
 public class LakeModifyQueue(int capacity)
 {
     
-    private Channel<FullLakeModifyRequest> _queue = Channel.CreateBounded<FullLakeModifyRequest>(new BoundedChannelOptions(capacity)
+    private readonly Channel<FullLakeModifyRequest> _queue = Channel.CreateBounded<FullLakeModifyRequest>(new BoundedChannelOptions(capacity)
     {
         FullMode = BoundedChannelFullMode.Wait
     });
@@ -48,9 +49,9 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     PutContentClass output = new PutContentClass();
 
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
-                    LakeCacheItem cachedItem = cache.TryGetCachedItemByPath(lakePutRequest.Path);
+                    ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakePutRequest.Path);
                     
-                    if (Unsafe.IsNullRef(ref cachedItem))
+                    if (Unsafe.IsNullRef(in cachedItem))
                     {
                         var lakeContent = await GetLakeRequest(lakePutRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
         
@@ -89,7 +90,8 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     }
                     else
                     {
-                        output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, cachedItem.Sha, modifyRequest.ModifyRequest.CancellationToken);
+                        string? cachedSha = cachedItem.Sha;
+                        output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, cachedSha, modifyRequest.ModifyRequest.CancellationToken);
                         output.ErrorCode = 200;
                     }
 
@@ -134,9 +136,9 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     DeleteContentClass output = new DeleteContentClass();
                     
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
-                    LakeCacheItem cachedItem = cache.TryGetCachedItemByPath(lakeDelRequest.Path);
+                    ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakeDelRequest.Path);
 
-                    if (Unsafe.IsNullRef(ref cachedItem))
+                    if (Unsafe.IsNullRef(in cachedItem))
                     {
                         GetContentClass lakeContent = await GetLakeRequest(lakeDelRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
                         if (lakeContent.ErrorCode != null)
@@ -209,6 +211,8 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
             
                         output.ErrorMessage = string.Join("", "Github DEL Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
                     }
+                    
+                    cache.DeleteCachedItemByPath(lakeDelRequest.Path);
                     
                     modifyRequest.TaskCompletionSource.SetResult(output);
                     break;

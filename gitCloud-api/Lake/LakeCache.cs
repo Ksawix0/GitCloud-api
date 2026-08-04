@@ -43,6 +43,24 @@ public class LakeCache(int capacity)
         return ref cache;
     }
     
+    public void DeleteCachedItemByPath(string path)
+    {
+        path = path.Trim('/');
+        ref LakeCacheItem cacheItem = ref CacheRoot;
+        string[] pathParts = path.Split('/');
+        foreach (string name in pathParts[..^1])
+        {
+            if(cacheItem.Entities == null || !cacheItem.Entities.Any()){return;}
+            cacheItem = ref CollectionsMarshal.GetValueRefOrNullRef(cacheItem.Entities, name);
+            if (  Unsafe.IsNullRef(ref cacheItem) )
+            {
+                return;
+            }
+        }
+
+        cacheItem.Entities?.Remove(pathParts[^1]);
+    }
+    
 }
 
 public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
