@@ -48,9 +48,9 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     PutContentClass output = new PutContentClass();
 
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
-                    LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(lakePutRequest.Path);
-    
-                    if (cachedItem == null)
+                    LakeCacheItem cachedItem = cache.TryGetCachedItemByPath(lakePutRequest.Path);
+                    
+                    if (Unsafe.IsNullRef(ref cachedItem))
                     {
                         var lakeContent = await GetLakeRequest(lakePutRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
         
@@ -134,9 +134,9 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     DeleteContentClass output = new DeleteContentClass();
                     
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
-                    LakeCacheItem? cachedItem = cache.TryGetCachedItemByPath(lakeDelRequest.Path);
+                    LakeCacheItem cachedItem = cache.TryGetCachedItemByPath(lakeDelRequest.Path);
 
-                    if (cachedItem == null)
+                    if (Unsafe.IsNullRef(ref cachedItem))
                     {
                         GetContentClass lakeContent = await GetLakeRequest(lakeDelRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
                         if (lakeContent.ErrorCode != null)

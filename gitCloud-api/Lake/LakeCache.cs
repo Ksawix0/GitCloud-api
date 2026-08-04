@@ -27,20 +27,20 @@ public class LakeCache(int capacity)
         return await _queue.Reader.ReadAsync(cancellationToken);
     }
 
-    public LakeCacheItem? TryGetCachedItemByPath(string path)
+    public ref readonly LakeCacheItem TryGetCachedItemByPath(string path)
     {
         path = path.Trim('/');
         ref LakeCacheItem cache = ref CacheRoot;
         foreach (string name in path.Split('/'))
         {
-            if(cache.Entities == null || !cache.Entities.Any()){return null;}
+            if(cache.Entities == null || !cache.Entities.Any()){return ref Unsafe.NullRef<LakeCacheItem>();}
             cache = ref CollectionsMarshal.GetValueRefOrNullRef(cache.Entities, name);
             if (  Unsafe.IsNullRef(ref cache) )
             {
-                return null;
+                return ref Unsafe.NullRef<LakeCacheItem>();
             }
         }
-        return cache;
+        return ref cache;
     }
     
 }
