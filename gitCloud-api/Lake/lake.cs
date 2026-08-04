@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using Org.BouncyCastle.Crypto;
 using static gitCloud_api.LakeCacheClasses;
 using static gitCloud_api.LakeModifyServiceClasses;
 
@@ -251,9 +252,34 @@ public static partial class Lake
             }
         }
         
+        
+        LakeGetResponseClass[]? entitiesArray = output.Type == "dir" ? new LakeGetResponseClass[output.Entries?.Length??0] : null;
+        
+        if (entitiesArray is not null)
+        {
+            for (int i = 0; i < (output.Entries?.Length??0); i++)
+            {
+                entitiesArray[i] = new LakeGetResponseClass
+                {
+                    Type = output.Entries![i].Type,
+                    Name = output.Entries[i].Name,
+                    Path = output.Entries[i].Path,
+                    Content = null,
+                    Entities = output.Entries[i].Type == "dir" ? [] : null
+                };
+            }
+        }
+        
         context.Response.StatusCode = 200;
         context.Response.ContentType = "application/json";
-        return JsonSerializer.Serialize(output);
+        return JsonSerializer.Serialize(new LakeGetResponseClass
+        {
+            Type = output.Type,
+            Name = output.Name,
+            Path = output.Path,
+            Content = output.Content,
+            Entities = entitiesArray
+        });
     }
 
     private static async Task<String> LakePut(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken)
@@ -288,9 +314,8 @@ public static partial class Lake
             {
                 return output.ErrorMessage!;
             }
-
-            context.Response.ContentType = "application/json";
-            return JsonSerializer.Serialize(output);
+            
+            return "";
 
         }
         catch (OperationCanceledException e)
@@ -329,7 +354,6 @@ public static partial class Lake
             return output.ErrorMessage!;
         }
         
-        context.Response.ContentType = "application/json";
-        return JsonSerializer.Serialize(output);
+        return "";
     }
 }

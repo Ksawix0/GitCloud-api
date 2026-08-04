@@ -225,6 +225,20 @@ public static partial class Lake
         [JsonPropertyName("verified_at")]
         public string? VerifiedAt { get; set; }
     }
+
+    public class LakeGetResponseClass
+    {
+        [JsonPropertyName("type")]
+        public required string Type { get; set; }
+        [JsonPropertyName("name")]
+        public required string Name { get; set; }
+        [JsonPropertyName("Path")] 
+        public required string Path { get; set; }
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+        [JsonPropertyName("entities")]
+        public required LakeGetResponseClass[]? Entities { get; set; }
+    }
     
     public enum LakeErrorCodes
     {
