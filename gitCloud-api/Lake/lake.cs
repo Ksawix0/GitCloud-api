@@ -184,7 +184,7 @@ public static partial class Lake
     }
 
 
-    private static async Task<string> LakeGet(string path ,HttpContext context, ClaimsPrincipal user, LakeCache cache, CancellationToken cancellationToken)
+    private static async Task<string> LakeGet(HttpContext context, ClaimsPrincipal user, LakeCache cache, CancellationToken cancellationToken, string path = "")
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
@@ -282,7 +282,7 @@ public static partial class Lake
         });
     }
 
-    private static async Task<String> LakePut(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken)
+    private static async Task<string> LakePut(HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken, string path = "")
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
@@ -325,7 +325,7 @@ public static partial class Lake
         }
     }
 
-    private static async Task<String> LakeDelete(string path, HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken)
+    private static async Task<string> LakeDelete(HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken, string path = "")
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
