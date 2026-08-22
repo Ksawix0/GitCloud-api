@@ -1,11 +1,12 @@
 ﻿using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using Org.BouncyCastle.Crypto;
-using static gitCloud_api.LakeCacheClasses;
+using System.Text.Json.Serialization;
 using static gitCloud_api.LakeModifyServiceClasses;
+using static gitCloud_api.LakeCacheClasses;
 
 namespace gitCloud_api;
 
@@ -13,7 +14,14 @@ public static partial class Lake
 {
     private static readonly ILogger Logger = LoggerFactory.Create(builder => builder.AddConsole() ).CreateLogger(typeof(Lake));
     private static readonly HttpClient HttpClient = new HttpClient();
+
+    private static readonly JsonSerializerOptions LakeDefaultSerializerOptions = new JsonSerializerOptions()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+    
     private static string _lakeUrl = "";
+    private static Func<string, string> _getGraphQlQuery = s =>"";
 
     public static void InitLake(string token, string repositoryName, string userName)
     {
@@ -29,6 +37,41 @@ public static partial class Lake
 
         _lakeUrl = $"https://api.github.com/repos/{userName}/{repositoryName}/contents";
 
+        string query = """
+                       query CheckType($owner: String!, $name: String!, $expression: String!) {
+                         repository(owner: $owner, name: $name) {
+                           object(expression: $expression) {
+                             __typename
+                       
+                             ... on Blob {
+                               byteSize
+                               oid
+                             }
+                             
+                             ... on Tree {
+                               entries{
+                                 name
+                                 
+                                 object{
+                                   __typename
+                                 
+                                   ... on Blob{
+                                     byteSize
+                                     oid
+                                   }
+                                 }
+                               }
+                             }
+                           }
+                         }
+                       }
+                       """.Replace("\r\n", "\\n").Replace("\n", "\\n");
+
+        string partialRequest = $$"""
+                                {"query":"{{query}}","variables":{"owner":"{{userName}}","name":"{{repositoryName}}","expression":"main:
+                                """.Replace("\r\n","").Replace("\n","");
+        
+        _getGraphQlQuery = path => partialRequest+path.Trim('/')+@"""}}";
     }
     
     public static void MapGitCloudLakeEndpoints(this RouteGroupBuilder builder)
@@ -38,22 +81,22 @@ public static partial class Lake
         builder.MapDelete("/{*path}", LakeDelete).RequireAuthorization();
     } 
     
-    public static async Task<GetContentClass> GetLakeRequest(string path, CancellationToken? cancellationToken = null)
+    public static async Task<RestGetClass> GetLakeRequest(string path, CancellationToken? cancellationToken = null)
     {
         try
         {
             HttpResponseMessage resp =  await HttpClient.GetAsync(_lakeUrl+path, cancellationToken??CancellationToken.None);
-            GetContentClass? output;
+            RestGetClass? output;
             if (resp.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotModified or HttpStatusCode.Found)
             {
                 try
                 {
-                    output = JsonSerializer.Deserialize<GetContentClass>(await resp.Content.ReadAsStringAsync()) ?? new GetContentClass { ErrorMessage = "Json deserialization returned null" };
+                    output = JsonSerializer.Deserialize<RestGetClass>(await resp.Content.ReadAsStringAsync()) ?? new RestGetClass { ErrorMessage = "Json deserialization returned null" };
                 }
                 catch (JsonException e)
                 {
                     Logger.LogError(e.Message);
-                    output = new GetContentClass
+                    output = new RestGetClass
                     {
                         ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
                         ErrorMessage = "Json internal deserialization failed"
@@ -62,7 +105,7 @@ public static partial class Lake
             }
             else
             {
-                output = new GetContentClass
+                output = new RestGetClass
                 {
                     ErrorCode = (short)resp.StatusCode,
                     ErrorMessage = await resp.Content.ReadAsStringAsync()
@@ -73,15 +116,49 @@ public static partial class Lake
         }
         catch (OperationCanceledException e)
         {
-            return new GetContentClass()
+            return new RestGetClass()
             {
                 ErrorCode = 499,
                 ErrorMessage = "Client Closed Request"
             };
         }
     }
+
+    public static async Task GetLakeSendRawDataBlob(string path, HttpContext outputContext, long? size,LakeCache cache ,CancellationToken cancellationToken)
+    {
+        HttpResponseMessage restResponse;
+        using (HttpRequestMessage restRequest = new HttpRequestMessage(HttpMethod.Get, _lakeUrl + path))
+        {
+            restRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.raw+json", 1.0));
+            restResponse = await HttpClient.SendAsync(restRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+
+        switch (restResponse.StatusCode)
+        {
+            case HttpStatusCode.OK:
+            {
+                break;
+            }
+            case HttpStatusCode.NotFound:
+            {
+                cache.DeleteCachedItemByPath(path);
+                outputContext.Response.StatusCode = 404;
+                break;
+            }
+            default:
+            {
+                outputContext.Response.StatusCode = 500;
+                return;
+                break;
+            }
+        }
+
+        outputContext.Response.StatusCode = 200;
+        outputContext.Response.Headers.ContentLength = size;
+        await restResponse.Content.ReadAsStreamAsync(cancellationToken).Result.CopyToAsync(outputContext.Response.Body,8192, cancellationToken);
+    }
     
-    public static async Task<PutContentClass> PutLakeRequest(string path, string content, string? sha = null, CancellationToken? cancellationToken = null)
+    public static async Task<RestPutClass> PutLakeRequest(string path, string content, string? sha = null, CancellationToken? cancellationToken = null)
     {
         try
         {
@@ -96,17 +173,17 @@ public static partial class Lake
                 resp = await HttpClient.PutAsync(_lakeUrl+path, new StringContent( $"{{\"message\":\"ci: add {path}\",\"committer\":{{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"}},\"content\":\"{content}\",\"sha\":\"{sha}\"}}"), cancellationToken??CancellationToken.None);
             }
             
-            PutContentClass? output;
+            RestPutClass? output;
             if (resp.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
             {
                 try
                 {
-                    output = JsonSerializer.Deserialize<PutContentClass>(await resp.Content.ReadAsStringAsync()) ?? new PutContentClass { ErrorMessage = "Json deserialization returned null" };
+                    output = JsonSerializer.Deserialize<RestPutClass>(await resp.Content.ReadAsStringAsync()) ?? new RestPutClass { ErrorMessage = "Json deserialization returned null" };
                 }
                 catch (JsonException e)
                 {
                     Logger.LogError(e.Message);
-                    output = new PutContentClass
+                    output = new RestPutClass
                     {
                         ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
                         ErrorMessage = "Json internal deserialization failed"
@@ -115,7 +192,7 @@ public static partial class Lake
             }
             else
             {
-                output = new PutContentClass
+                output = new RestPutClass
                 {
                     ErrorCode = (short)resp.StatusCode,
                     ErrorMessage = await resp.Content.ReadAsStringAsync()
@@ -127,7 +204,7 @@ public static partial class Lake
         }
         catch (OperationCanceledException e)
         {
-            return new PutContentClass()
+            return new RestPutClass()
             {
                 ErrorCode = 499,
                 ErrorMessage = "Client Closed Request"
@@ -135,7 +212,7 @@ public static partial class Lake
         }
     }
 
-    public static async Task<DeleteContentClass> DelLakeRequest(string path, string sha, CancellationToken? cancellationToken = null)
+    public static async Task<RestDeleteClass> DelLakeRequest(string path, string sha, CancellationToken? cancellationToken = null)
     {
         try
         {
@@ -144,17 +221,17 @@ public static partial class Lake
             request.Content = new StringContent($"{{\"message\":\"ci: Delete {path}\",\"committer\":{{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"}},\"sha\":\"{sha}\"}}");
             HttpResponseMessage resp = await HttpClient.SendAsync(request,cancellationToken?? CancellationToken.None);
             
-            DeleteContentClass? output;
+            RestDeleteClass? output;
             if (resp.StatusCode is HttpStatusCode.OK)
             {
                 try
                 {
-                    output = JsonSerializer.Deserialize<DeleteContentClass>(await resp.Content.ReadAsStringAsync()) ?? new DeleteContentClass { ErrorMessage = "Json deserialization returned null" };
+                    output = JsonSerializer.Deserialize<RestDeleteClass>(await resp.Content.ReadAsStringAsync()) ?? new RestDeleteClass { ErrorMessage = "Json deserialization returned null" };
                 }
                 catch (JsonException e)
                 {
                     Logger.LogError(e.Message);
-                    output = new DeleteContentClass
+                    output = new RestDeleteClass
                     {
                         ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
                         ErrorMessage = "Json internal deserialization failed"
@@ -163,7 +240,7 @@ public static partial class Lake
             }
             else
             {
-                output = new DeleteContentClass
+                output = new RestDeleteClass
                 {
                     ErrorCode = (short)resp.StatusCode,
                     ErrorMessage = await resp.Content.ReadAsStringAsync()
@@ -175,7 +252,7 @@ public static partial class Lake
         }
         catch (OperationCanceledException e)
         {
-            return new DeleteContentClass()
+            return new RestDeleteClass()
             {
                 ErrorCode = 499,
                 ErrorMessage = "Client Closed Request"
@@ -184,102 +261,241 @@ public static partial class Lake
     }
 
 
-    private static async Task<string> LakeGet(HttpContext context, ClaimsPrincipal user, LakeCache cache, CancellationToken cancellationToken, string path = "")
+    private static async Task LakeGet(HttpContext context, ClaimsPrincipal user, LakeCache cache, CancellationToken cancellationToken, string path = "")
     {
         if (context.Request.Query.ContainsKey("root") && user.IsInRole("Admin"))
         {
-            path = (context.Request.Query["root"].ToString().Replace("%2F", "/") + path);
+            path = (Uri.UnescapeDataString(context.Request.Query["root"].ToString()) + path);
         }
         else
         {
-            path = "/Lake" + path;
+            path = "/Lake/" + path;
         }
         
-        GetContentClass output = await GetLakeRequest(path, cancellationToken);
-        if (output.ErrorCode != null)
+        
+        try
         {
-            switch (output.ErrorCode)
+            
+            ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(path);
+
+            if (!Unsafe.IsNullRef(in cachedItem))
             {
-                case 404:
-                    context.Response.StatusCode = 404;
-                    return "Not Found";
-                
-                case 499:
-                    context.Response.StatusCode = (int)output.ErrorCode;
-                    return output.ErrorMessage??"";
+                //? not blob
+                if (cachedItem.Sha is null && cachedItem.Entities != null)
+                {
+                    GitCloudGetResponseClass[] entitiesArray = new GitCloudGetResponseClass[cachedItem.Entities?.Count ?? 0];
+                    int i = 0;
+                    foreach (string name in cachedItem.Entities?.Keys?? new Dictionary<string, LakeCacheItem>.KeyCollection(new Dictionary<string, LakeCacheItem>()))
+                    {
+                        entitiesArray[i] = new GitCloudGetResponseClass
+                        {
+                            Type = cachedItem.Entities[name].Sha is null ? "dir" : "file",
+                            Name = name,
+                            ByteSize = cachedItem.Entities[name].ByteSize ,
+                            Entities = cachedItem.Entities[name].Sha is null ? [] : null
+                        };
+                        i++;
+                    }
+
+                    context.Response.Headers.ContentType = "application/json";
+                    ReadOnlyMemory<byte> output = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new GitCloudGetResponseClass
+                    {
+                        Type = "dir",
+                        Entities = entitiesArray
+                    }, LakeDefaultSerializerOptions));
+                    context.Response.ContentLength = output.Length;
+                    await context.Response.Body.WriteAsync(output, cancellationToken);
+                }
+                else //? Blob
+                {
+                    await GetLakeSendRawDataBlob(path, context, cachedItem.ByteSize, cache, cancellationToken);
+                }
+
+                return;
             }
-                
-            context.Response.StatusCode = 500;
-            if (output.ErrorCode < 0)
+            
+            GraphQlGetClass? graphQlResult;
+            using (HttpResponseMessage graphQlResponse = await HttpClient.PostAsync("https://api.github.com/graphql", new StringContent(_getGraphQlQuery(path)), cancellationToken))
             {
-                return output.ErrorMessage!;                
+                if (graphQlResponse.StatusCode != HttpStatusCode.OK)
+                {
+                    context.Response.StatusCode = 500;
+                    return;
+                }
+                graphQlResult = JsonSerializer.Deserialize<GraphQlGetClass>(await graphQlResponse.Content.ReadAsStringAsync(cancellationToken));
+            }
+            
+            if(graphQlResult?.Data.Repository?.Object is null)
+            {
+                context.Response.StatusCode = 404;
+                return;
             }
 
-            return string.Join("",
-                "Github Get Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
-        }
-        
-        switch (output.Type)
-        {
-            case "file":
-                await cache.EnqueueAsync(new LakeCacheNewItem
-                {
-                    Path = path,
-                    Sha = output.Sha,
-                    Entities = null
-                });
-                break;
-            case "dir":
-            {
-                Dictionary<string, LakeCacheItem> entities = new Dictionary<string, LakeCacheItem>();
             
-                foreach (GetContentClass getContent in output.Entries?? [])
-                {
-                    entities.Add(getContent.Name, new LakeCacheItem
+            
+            switch (graphQlResult.Data.Repository.Object.TypeName)
+            {
+                case "Blob":
+
+                    Task sendDataTask = GetLakeSendRawDataBlob(path, context, graphQlResult.Data.Repository.Object.ByteSize, cache, cancellationToken);
+                    
+                    await cache.EnqueueAsync(new LakeCacheNewItem
                     {
-                        Sha = getContent.Type == "dir" ? null : getContent.Sha,
-                        Entities = getContent.Type == "dir" ? new Dictionary<string, LakeCacheItem>() : null
+                        Path = path,
+                        Sha = graphQlResult.Data.Repository.Object.Oid,
+                        ByteSize = graphQlResult.Data.Repository.Object.ByteSize
                     });
+
+                    await sendDataTask;
+                    return;
+                    break;
+                
+                case "Tree":
+                {
+                    Dictionary<string, LakeCacheItem> entities = new Dictionary<string, LakeCacheItem>();
+                
+                    foreach (GraphQlEntry entry in graphQlResult.Data.Repository.Object.Entries?? [])
+                    {
+                        if (entry.Object.TypeName == "Tree")
+                        {
+                            entities.Add(entry.Name, new LakeCacheItem
+                            {
+                                Entities = new Dictionary<string, LakeCacheItem>()
+                            });
+                        }
+                        else
+                        {
+                            entities.Add(entry.Name, new LakeCacheItem
+                            {
+                                Sha = entry.Object.Oid,
+                                ByteSize = entry.Object.ByteSize,
+                            });
+                        }
+                    }
+                
+                    await cache.EnqueueAsync(new LakeCacheNewItem
+                    {
+                        Path = path,
+                        Sha = null,
+                        Entities = entities
+                    });
+                    
+                    context.Response.Headers.ContentType = "application/json";
+                    ReadOnlyMemory<byte> output = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new GitCloudGetResponseClass()
+                   {
+                       Type = "dir",
+                       Entities =
+                       [
+                           .. entities.Select(pair => new GitCloudGetResponseClass()
+                           {
+                               Type = pair.Value.Sha is null ? "dir" : "file",
+                               Name = pair.Key,
+                               ByteSize = pair.Value.ByteSize,
+                               Entities = pair.Value.Entities is null ? null : []
+                           })
+                       ]
+                    }, LakeDefaultSerializerOptions));
+                    context.Response.ContentLength = output.Length;
+                    await context.Response.Body.WriteAsync(output, cancellationToken);
+                    return;
+                    break;
                 }
+            }
+
+            // RestGetClass output = await GetLakeRequest(path, cancellationToken);
+            // if (output.ErrorCode != null)
+            // {
+            //     switch (output.ErrorCode)
+            //     {
+            //         case 404:
+            //             context.Response.StatusCode = 404;
+            //             return "Not Found";
+            //         
+            //         case 499:
+            //             context.Response.StatusCode = (int)output.ErrorCode;
+            //             return output.ErrorMessage??"";
+            //     }
+            //         
+            //     context.Response.StatusCode = 500;
+            //     if (output.ErrorCode < 0)
+            //     {
+            //         return output.ErrorMessage!;                
+            //     }
+            //
+            //     return string.Join("",
+            //         "Github Get Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
+            // }
+            //
+            // switch (output.Type)
+            // {
+            //     case "file":
+            //         await cache.EnqueueAsync(new LakeCacheNewItem
+            //         {
+            //             Path = path,
+            //             Sha = output.Sha,
+            //             Entities = null
+            //         });
+            //         break;
+            //     case "dir":
+            //     {
+            //         Dictionary<string, LakeCacheItem> entities = new Dictionary<string, LakeCacheItem>();
+            //     
+            //         foreach (RestGetClass getContent in output.Entries?? [])
+            //         {
+            //             entities.Add(getContent.Name, new LakeCacheItem
+            //             {
+            //                 Sha = getContent.Type == "dir" ? null : getContent.Sha,
+            //                 Entities = getContent.Type == "dir" ? new Dictionary<string, LakeCacheItem>() : null
+            //             });
+            //         }
+            //     
+            //         await cache.EnqueueAsync(new LakeCacheNewItem
+            //         {
+            //             Path = path,
+            //             Sha = null,
+            //             Entities = entities
+            //         });
+            //         break;
+            //     }
+            // }
+            //
+            //
+            // GitCloudGetResponseClass[]? entitiesArray = output.Type == "dir" ? new GitCloudGetResponseClass[output.Entries?.Length??0] : null;
+            //
+            // if (entitiesArray is not null)
+            // {
+            //     for (int i = 0; i < (output.Entries?.Length??0); i++)
+            //     {
+            //         entitiesArray[i] = new GitCloudGetResponseClass
+            //         {
+            //             Type = output.Entries![i].Type,
+            //             Name = output.Entries[i].Name,
+            //             Path = output.Entries[i].Path,
+            //             Content = null,
+            //             Entities = output.Entries[i].Type == "dir" ? [] : null
+            //         };
+            //     }
+            // }
+            //
+            // context.Response.StatusCode = 200;
+            // context.Response.ContentType = "application/json";
+            // return JsonSerializer.Serialize(new GitCloudGetResponseClass
+            // {
+            //     Type = output.Type,
+            //     Name = output.Name,
+            //     Path = output.Path,
+            //     Content = output.Content,
+            //     Entities = entitiesArray
+            // });
             
-                await cache.EnqueueAsync(new LakeCacheNewItem
-                {
-                    Path = path,
-                    Sha = null,
-                    Entities = entities
-                });
-                break;
-            }
+            context.Response.StatusCode = 500;
+            return;
         }
-        
-        
-        LakeGetResponseClass[]? entitiesArray = output.Type == "dir" ? new LakeGetResponseClass[output.Entries?.Length??0] : null;
-        
-        if (entitiesArray is not null)
+        catch (OperationCanceledException)
         {
-            for (int i = 0; i < (output.Entries?.Length??0); i++)
-            {
-                entitiesArray[i] = new LakeGetResponseClass
-                {
-                    Type = output.Entries![i].Type,
-                    Name = output.Entries[i].Name,
-                    Path = output.Entries[i].Path,
-                    Content = null,
-                    Entities = output.Entries[i].Type == "dir" ? [] : null
-                };
-            }
+            context.Response.StatusCode = 499;
+            return;
         }
-        
-        context.Response.StatusCode = 200;
-        context.Response.ContentType = "application/json";
-        return JsonSerializer.Serialize(new LakeGetResponseClass
-        {
-            Type = output.Type,
-            Name = output.Name,
-            Path = output.Path,
-            Content = output.Content,
-            Entities = entitiesArray
-        });
     }
 
     private static async Task<string> LakePut(HttpContext context, ClaimsPrincipal user, LakeCache cache, LakeModifyQueue modifyQueue, CancellationToken cancellationToken, string path = "")
@@ -297,7 +513,7 @@ public static partial class Lake
         {
             Task<string> bodyContentTask = (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync(cancellationToken);
 
-            PutContentClass? output = (PutContentClass?)await modifyQueue.TryEnqueueTaskAsync(new LakePutRequest
+            RestPutClass? output = (RestPutClass?)await modifyQueue.TryEnqueueTaskAsync(new LakePutRequest
             {
                 BodyContentTask = bodyContentTask,
                 Path = path,
@@ -336,7 +552,7 @@ public static partial class Lake
             path = "/Lake" + path;
         }
         
-        DeleteContentClass? output = (DeleteContentClass?)await modifyQueue.TryEnqueueTaskAsync(new LakeDelRequest
+        RestDeleteClass? output = (RestDeleteClass?)await modifyQueue.TryEnqueueTaskAsync(new LakeDelRequest
         {
             Path = path,
             CancellationToken = cancellationToken

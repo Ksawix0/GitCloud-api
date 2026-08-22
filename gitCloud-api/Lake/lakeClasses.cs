@@ -4,7 +4,8 @@ namespace gitCloud_api;
 
 public static partial class Lake
 {
-    public interface IResponseContent
+    //? REST api
+    public interface IResponseRest
     {
         [JsonIgnore]
         public short? ErrorCode { get; set; }
@@ -14,7 +15,7 @@ public static partial class Lake
     }
     
     //? get
-    public class GetContentClass: IResponseContent
+    public class RestGetClass: IResponseRest
     {
         [JsonPropertyName("type")]
         public string Type { get; set; }
@@ -50,10 +51,10 @@ public static partial class Lake
         public string? DownloadUrl { get; set; }
 
         [JsonPropertyName("entries")]
-        public GetContentClass[]? Entries { get; set; }
+        public RestGetClass[]? Entries { get; set; }
         
         [JsonPropertyName("_links")]
-        public LinksClass Links { get; set; }
+        public RestLinksClass RestLinks { get; set; }
         
         [JsonIgnore]
         public short? ErrorCode { get; set; }
@@ -63,16 +64,16 @@ public static partial class Lake
     }
     
     //? put
-    public class PutContentClass: IResponseContent
+    public class RestPutClass: IResponseRest
     {
 
         [JsonPropertyName("content")]
         [JsonRequired]
-        public ContentContentClass Content { get; set; }
+        public RestContentClass RestContent { get; set; }
         
         [JsonPropertyName("commit")]
         [JsonRequired]
-        public CommitClass Commit { get; set; }
+        public RestCommitClass RestCommit { get; set; }
         
         [JsonIgnore]
         public short? ErrorCode { get; set; }
@@ -82,13 +83,13 @@ public static partial class Lake
     }
     
     //? del
-    public class DeleteContentClass: IResponseContent
+    public class RestDeleteClass: IResponseRest
     {
         [JsonPropertyName("content")]
-        public ContentContentClass? Content { get; set; }
+        public RestContentClass? Content { get; set; }
         
         [JsonPropertyName("commit")]
-        public CommitClass Commit { get; set; } = null!;
+        public RestCommitClass RestCommit { get; set; } = null!;
         
         [JsonIgnore]
         public short? ErrorCode { get; set; }
@@ -97,7 +98,7 @@ public static partial class Lake
         public string? ErrorMessage { get; set; }
     }
     
-    public class LinksClass
+    public class RestLinksClass
     {
         [JsonPropertyName("git")]
         public string Git { get; set; }
@@ -109,7 +110,7 @@ public static partial class Lake
         public string Self { get; set; }
     }
     
-    public class ContentContentClass
+    public class RestContentClass
     {
         [JsonPropertyName("type")]
         public string Type { get; set; }
@@ -139,10 +140,10 @@ public static partial class Lake
         public string? DownloadUrl { get; set; }
 
         [JsonPropertyName("_links")]
-        public LinksClass Links { get; set; }
+        public RestLinksClass RestLinks { get; set; }
     }
 
-    public class CommitClass
+    public class RestCommitClass
     {
         [JsonPropertyName("sha")]
         public string? Sha { get; set; }
@@ -157,25 +158,25 @@ public static partial class Lake
         public string? HtmlUrl { get; set; }
 
         [JsonPropertyName("author")]
-        public CommitUserClass? Author { get; set; }
+        public RestCommitUserClass? Author { get; set; }
 
         [JsonPropertyName("committer")]
-        public CommitUserClass? Committer { get; set; }
+        public RestCommitUserClass? Committer { get; set; }
 
         [JsonPropertyName("message")]
         public string? Message { get; set; }
 
         [JsonPropertyName("tree")]
-        public CommitTreeClass? Tree { get; set; }
+        public RestCommitTreeClass? Tree { get; set; }
 
         [JsonPropertyName("parents")]
-        public List<ParentClass>? Parents { get; set; }
+        public List<RestParentClass>? Parents { get; set; }
 
         [JsonPropertyName("verification")]
-        public VerificationClass? Verification { get; set; }
+        public RestVerificationClass? Verification { get; set; }
     }
 
-    public class CommitUserClass
+    public class RestCommitUserClass
     {
         [JsonPropertyName("date")]
         public string? Date { get; set; }
@@ -187,7 +188,7 @@ public static partial class Lake
         public string Email { get; set; }
     }
 
-    public class CommitTreeClass
+    public class RestCommitTreeClass
     {
         [JsonPropertyName("url")]
         public string Url { get; set; }
@@ -196,7 +197,7 @@ public static partial class Lake
         public string Sha { get; set; }
     }
 
-    public class ParentClass
+    public class RestParentClass
     {
         [JsonPropertyName("url")]
         public string? Url { get; set; }
@@ -208,7 +209,7 @@ public static partial class Lake
         public string? Sha { get; set; }
     }
 
-    public class VerificationClass
+    public class RestVerificationClass
     {
         [JsonPropertyName("verified")]
         public bool Verified { get; set; }
@@ -225,19 +226,59 @@ public static partial class Lake
         [JsonPropertyName("verified_at")]
         public string? VerifiedAt { get; set; }
     }
+    
+    //? graphQl api
+    public class GraphQlGetClass
+    {
+        
+        
+        [JsonPropertyName("data")]
+        public required GraphQlData Data { get; set; }
+    }
+    
+    public class GraphQlData
+    {
+        [JsonPropertyName("repository")]
+        public GraphQlRepository? Repository { get; set; }
+    }
+    
+    public new class GraphQlRepository
+    {
+        [JsonPropertyName("object")]
+        public GraphQlObject? Object { get; set; }
+    }
+    
+    public class GraphQlObject{
+        [JsonPropertyName("__typename")]
+        public required string TypeName { get; set;}
+        //? Blob
+        [JsonPropertyName("byteSize")]
+        public long? ByteSize { get; set;}
+        [JsonPropertyName("oid")]
+        public string? Oid { get; set; }
+        //? Tree
+        [JsonPropertyName("entries")]
+        public GraphQlEntry[]? Entries { get; set; }
+    }
 
-    public class LakeGetResponseClass
+    public class GraphQlEntry
+    {
+        [JsonPropertyName("name")]
+        public required string Name { get; set; }
+        [JsonPropertyName("object")]
+        public required GraphQlObject Object { get; set; }
+    }
+
+    public class GitCloudGetResponseClass
     {
         [JsonPropertyName("type")]
         public required string Type { get; set; }
         [JsonPropertyName("name")]
-        public required string Name { get; set; }
-        [JsonPropertyName("Path")] 
-        public required string Path { get; set; }
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
+        public string? Name { get; set; }
+        [JsonPropertyName("byteSize")]
+        public long? ByteSize { get; set; }
         [JsonPropertyName("entities")]
-        public required LakeGetResponseClass[]? Entities { get; set; }
+        public GitCloudGetResponseClass[]? Entities { get; set; }
     }
     
     public enum LakeErrorCodes

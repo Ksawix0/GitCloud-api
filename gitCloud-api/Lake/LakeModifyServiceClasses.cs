@@ -16,9 +16,9 @@ public static class LakeModifyServiceClasses
     
     public class LakeDelRequest : LakeModifyRequest { }
     
-    public class FullLakeModifyRequest(TaskCompletionSource<IResponseContent> tcs, LakeModifyRequest lakeModifyRequest)
+    public class FullLakeModifyRequest(TaskCompletionSource<IResponseRest> tcs, LakeModifyRequest lakeModifyRequest)
     {
-        public readonly TaskCompletionSource<IResponseContent> TaskCompletionSource = tcs;
+        public readonly TaskCompletionSource<IResponseRest> TaskCompletionSource = tcs;
         public readonly LakeModifyRequest ModifyRequest = lakeModifyRequest;
     } 
 }

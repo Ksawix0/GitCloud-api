@@ -11,12 +11,12 @@ public static partial class Db
 
         public static async Task UploadUsersUpstream()
         {
-            GetContentClass getContent =  await GetLakeRequest(GitCloudDbFilePaths.UserFile);
-            PutContentClass putContentClass = await PutLakeRequest(GitCloudDbFilePaths.UserFile,
-                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.Users))), getContent.Sha);
-            if (putContentClass.ErrorCode != null)
+            RestGetClass restGet =  await GetLakeRequest(GitCloudDbFilePaths.UserFile);
+            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.UserFile,
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.Users))), restGet.Sha);
+            if (restPutClass.ErrorCode != null)
             {
-                Logger.LogError("db sync error: {message}",  putContentClass.ErrorMessage);
+                Logger.LogError("db sync error: {message}",  restPutClass.ErrorMessage);
             }
         }
         
@@ -24,12 +24,12 @@ public static partial class Db
         {
             GitCloudDb.RefreshTokens.RemoveAll(token => token.ExpiresAt < DateTime.Now);
             
-            GetContentClass getContent =  await GetLakeRequest(GitCloudDbFilePaths.RefreshTokenFile);
-            PutContentClass putContentClass = await PutLakeRequest(GitCloudDbFilePaths.RefreshTokenFile,
-                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens))), getContent.Sha);
-            if (putContentClass.ErrorCode != null)
+            RestGetClass restGet =  await GetLakeRequest(GitCloudDbFilePaths.RefreshTokenFile);
+            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.RefreshTokenFile,
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens))), restGet.Sha);
+            if (restPutClass.ErrorCode != null)
             {
-                Logger.LogError("db sync error: {message}",  putContentClass.ErrorMessage);
+                Logger.LogError("db sync error: {message}",  restPutClass.ErrorMessage);
             }
         }
         

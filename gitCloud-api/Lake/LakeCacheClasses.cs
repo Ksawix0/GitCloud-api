@@ -5,6 +5,7 @@ public static class LakeCacheClasses
     public class LakeCacheItem
     {
         public string? Sha;
+        public long? ByteSize;
         public Dictionary<string, LakeCacheItem>? Entities;
     }
     
@@ -12,6 +13,7 @@ public static class LakeCacheClasses
     {
         public required string Path;
         public string? Sha;
+        public long? ByteSize;
         public Dictionary<string, LakeCacheItem>? Entities;
         public TaskCompletionSource? TaskCompletionSource;
     }

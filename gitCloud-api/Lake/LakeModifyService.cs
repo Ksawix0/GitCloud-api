@@ -15,9 +15,9 @@ public class LakeModifyQueue(int capacity)
         FullMode = BoundedChannelFullMode.Wait
     });
     
-    public async Task<IResponseContent?> TryEnqueueTaskAsync(LakeModifyRequest item)
+    public async Task<IResponseRest?> TryEnqueueTaskAsync(LakeModifyRequest item)
     {
-        TaskCompletionSource<IResponseContent> tcs = new TaskCompletionSource<IResponseContent>();
+        TaskCompletionSource<IResponseRest> tcs = new TaskCompletionSource<IResponseRest>();
         if (!_queue.Writer.TryWrite(new FullLakeModifyRequest(tcs, item)))
         {
             return null;
@@ -46,7 +46,7 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                 //? Put
                 case LakePutRequest lakePutRequest:
                 {
-                    PutContentClass output = new PutContentClass();
+                    RestPutClass output = new RestPutClass();
 
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
                     ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakePutRequest.Path);
@@ -121,7 +121,7 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     await cache.EnqueueAsync(new LakeCacheNewItem
                     {
                         Path = lakePutRequest.Path,
-                        Sha = output.Content.Sha,
+                        Sha = output.RestContent.Sha,
                         Entities = null,
                         TaskCompletionSource = _pendingCacheRequest
                     });
@@ -133,45 +133,45 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                 //? Del
                 case LakeDelRequest lakeDelRequest:
                 {
-                    DeleteContentClass output = new DeleteContentClass();
+                    RestDeleteClass output = new RestDeleteClass();
                     
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
                     ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakeDelRequest.Path);
 
                     if (Unsafe.IsNullRef(in cachedItem))
                     {
-                        GetContentClass lakeContent = await GetLakeRequest(lakeDelRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
-                        if (lakeContent.ErrorCode != null)
+                        RestGetClass lake = await GetLakeRequest(lakeDelRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
+                        if (lake.ErrorCode != null)
                         {
-                            if (lakeContent.ErrorCode == 404)
+                            if (lake.ErrorCode == 404)
                             {
-                                output.ErrorCode = lakeContent.ErrorCode;
+                                output.ErrorCode = lake.ErrorCode;
                                 output.ErrorMessage = "Not Found";
                                 modifyRequest.TaskCompletionSource.SetResult(output);
                                 break;
                             }
-                            if (lakeContent.ErrorCode == 499)
+                            if (lake.ErrorCode == 499)
                             {
-                                output.ErrorCode = lakeContent.ErrorCode;
-                                output.ErrorMessage = lakeContent.ErrorMessage ?? "";
+                                output.ErrorCode = lake.ErrorCode;
+                                output.ErrorMessage = lake.ErrorMessage ?? "";
                                 modifyRequest.TaskCompletionSource.SetResult(output);
                                 break;
                             }
                 
                             output.ErrorCode = 500;
-                            if (lakeContent.ErrorCode < 0)
+                            if (lake.ErrorCode < 0)
                             {
-                                output.ErrorMessage = lakeContent.ErrorMessage!;
+                                output.ErrorMessage = lake.ErrorMessage!;
                                 modifyRequest.TaskCompletionSource.SetResult(output);
                                 break;
                             }
                 
-                            output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
+                            output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lake.ErrorCode, "\nMessage: \n", lake.ErrorMessage);
                             modifyRequest.TaskCompletionSource.SetResult(output);
                             break;
                         }
 
-                        if (lakeContent.Type == "dir")
+                        if (lake.Type == "dir")
                         {
                             output.ErrorCode = 409;
                             output.ErrorMessage = "Cannot delete a folder";
@@ -179,7 +179,7 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                             break;
                         }
             
-                        output = await DelLakeRequest(lakeDelRequest.Path, lakeContent.Sha, modifyRequest.ModifyRequest.CancellationToken);
+                        output = await DelLakeRequest(lakeDelRequest.Path, lake.Sha, modifyRequest.ModifyRequest.CancellationToken);
                     }
                     else
                     {
