@@ -97,19 +97,21 @@ public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
                 }
             }
             
-            cacheItem.Sha = request.Sha;
             if (request.Entities == null)
             {
+                cacheItem.Sha = request.Sha;
+                cacheItem.ByteSize = request.ByteSize;
                 cacheItem.Entities = null;
             }
             else 
             {
                 foreach (KeyValuePair<string, LakeCacheItem> item in request.Entities)
                 {
-                    if (!cacheItem.Entities.ContainsKey(item.Key))
+                    if (cacheItem.Entities.ContainsKey(item.Key) && cacheItem.Entities[item.Key].Entities is not null)
                     {
-                        cacheItem.Entities.Add(item.Key, item.Value);
+                        continue;
                     }
+                    cacheItem.Entities.Add(item.Key, item.Value);
                 }
             }
             

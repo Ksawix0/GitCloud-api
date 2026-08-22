@@ -155,7 +155,7 @@ public static partial class Lake
 
         outputContext.Response.StatusCode = 200;
         outputContext.Response.Headers.ContentLength = size;
-        await restResponse.Content.ReadAsStreamAsync(cancellationToken).Result.CopyToAsync(outputContext.Response.Body,8192, cancellationToken);
+        await restResponse.Content.ReadAsStreamAsync(cancellationToken).Result.CopyToAsync(outputContext.Response.Body,81920, cancellationToken);
     }
     
     public static async Task<RestPutClass> PutLakeRequest(string path, string content, string? sha = null, CancellationToken? cancellationToken = null)
@@ -368,7 +368,6 @@ public static partial class Lake
                             entities.Add(entry.Name, new LakeCacheItem
                             {
                                 Sha = entry.Object.Oid,
-                                ByteSize = entry.Object.ByteSize,
                             });
                         }
                     }
