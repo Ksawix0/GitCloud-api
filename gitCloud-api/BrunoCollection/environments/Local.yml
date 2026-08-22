@@ -1,7 +1,8 @@
 name: Local
 variables:
   - name: GitCloudAddress
-    value: http://localhost:5250
+    value: https://localhost:5550
+    description: ""
   - secret: true
     name: GitCloudUsername
   - secret: true
