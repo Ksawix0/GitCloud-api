@@ -68,8 +68,8 @@ public static class Program
         {
             ILogger logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger(typeof(Db));
             logger.LogInformation("Started shutdown db upload");
-            DbSync.UploadUsersUpstream().Wait();
-            DbSync.UploadTokensUpstream().Wait();
+            DbSync.UploadUsersUpstream(CancellationToken.None).Wait();
+            DbSync.UploadTokensUpstream(CancellationToken.None).Wait();
             logger.LogInformation("Db uploaded upstream");
         });
 

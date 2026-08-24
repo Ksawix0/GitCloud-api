@@ -21,7 +21,13 @@ public static partial class Lake
     };
     
     private static string _lakeUrl = "";
-    private static Func<string, string> _getGraphQlQuery = s =>"";
+    private static Func<string, string> _getInfoGraphQlQuery = _ =>"";
+
+    private static byte[][] _modifyLakePrefix =
+    [
+        [.. "{\"message\":\"ci: "u8],
+        [.. "\",\"committer\":{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"},\"content\":\""u8]
+    ]; 
 
     public static void InitLake(string token, string repositoryName, string userName)
     {
@@ -71,7 +77,7 @@ public static partial class Lake
                                 {"query":"{{query}}","variables":{"owner":"{{userName}}","name":"{{repositoryName}}","expression":"main:
                                 """.Replace("\r\n","").Replace("\n","");
         
-        _getGraphQlQuery = path => partialRequest+path.Trim('/')+@"""}}";
+        _getInfoGraphQlQuery = path => partialRequest+path.Trim('/')+@"""}}";
     }
     
     public static void MapGitCloudLakeEndpoints(this RouteGroupBuilder builder)
@@ -81,51 +87,52 @@ public static partial class Lake
         builder.MapDelete("/{*path}", LakeDelete).RequireAuthorization();
     } 
     
-    public static async Task<RestGetClass> GetLakeRequest(string path, CancellationToken? cancellationToken = null)
-    {
-        try
-        {
-            HttpResponseMessage resp =  await HttpClient.GetAsync(_lakeUrl+path, cancellationToken??CancellationToken.None);
-            RestGetClass? output;
-            if (resp.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotModified or HttpStatusCode.Found)
-            {
-                try
-                {
-                    output = JsonSerializer.Deserialize<RestGetClass>(await resp.Content.ReadAsStringAsync()) ?? new RestGetClass { ErrorMessage = "Json deserialization returned null" };
-                }
-                catch (JsonException e)
-                {
-                    Logger.LogError(e.Message);
-                    output = new RestGetClass
-                    {
-                        ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
-                        ErrorMessage = "Json internal deserialization failed"
-                    };
-                }
-            }
-            else
-            {
-                output = new RestGetClass
-                {
-                    ErrorCode = (short)resp.StatusCode,
-                    ErrorMessage = await resp.Content.ReadAsStringAsync()
-                };
-            }
-            
-            return output;
-        }
-        catch (OperationCanceledException e)
-        {
-            return new RestGetClass()
-            {
-                ErrorCode = 499,
-                ErrorMessage = "Client Closed Request"
-            };
-        }
-    }
+    // public static async Task<RestGetClass> GetLakeRequest(string path, CancellationToken? cancellationToken = null)
+    // {
+    //     try
+    //     {
+    //         HttpResponseMessage resp =  await HttpClient.GetAsync(_lakeUrl+path, cancellationToken??CancellationToken.None);
+    //         RestGetClass? output;
+    //         if (resp.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotModified or HttpStatusCode.Found)
+    //         {
+    //             try
+    //             {
+    //                 output = JsonSerializer.Deserialize<RestGetClass>(await resp.Content.ReadAsStringAsync()) ?? new RestGetClass { ErrorMessage = "Json deserialization returned null" };
+    //             }
+    //             catch (JsonException e)
+    //             {
+    //                 Logger.LogError(e.Message);
+    //                 output = new RestGetClass
+    //                 {
+    //                     StatusCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
+    //                     ErrorMessage = "Json internal deserialization failed"
+    //                 };
+    //             }
+    //         }
+    //         else
+    //         {
+    //             output = new RestGetClass
+    //             {
+    //                 StatusCode = (short)resp.StatusCode,
+    //                 ErrorMessage = await resp.Content.ReadAsStringAsync()
+    //             };
+    //         }
+    //         
+    //         return output;
+    //     }
+    //     catch (OperationCanceledException)
+    //     {
+    //         return new RestGetClass()
+    //         {
+    //             StatusCode = 499,
+    //             ErrorMessage = "Client Closed Request"
+    //         };
+    //     }
+    // }
 
-    public static async Task GetLakeSendRawDataBlob(string path, HttpContext outputContext, long? size,LakeCache cache ,CancellationToken cancellationToken)
+    public static async Task<RestGetRawDataInfo> GetLakeRawDataBlob(string path, Stream outputStream,CancellationToken cancellationToken)
     {
+        RestGetRawDataInfo outputInfo = new RestGetRawDataInfo();
         HttpResponseMessage restResponse;
         using (HttpRequestMessage restRequest = new HttpRequestMessage(HttpMethod.Get, _lakeUrl + path))
         {
@@ -141,51 +148,95 @@ public static partial class Lake
             }
             case HttpStatusCode.NotFound:
             {
-                cache.DeleteCachedItemByPath(path);
-                outputContext.Response.StatusCode = 404;
-                break;
+                outputInfo.StatusCode = 404;
+                return outputInfo;
             }
             default:
             {
-                outputContext.Response.StatusCode = 500;
-                return;
-                break;
+                outputInfo.StatusCode = 500;
+                return outputInfo;
             }
         }
+        outputInfo.Length = restResponse.Content.Headers.ContentLength;
+        outputInfo.StatusCode = 200;
+        await (await restResponse.Content.ReadAsStreamAsync(cancellationToken)).CopyToAsync(outputStream,81920, cancellationToken);
+        return outputInfo;
+    }
 
-        outputContext.Response.StatusCode = 200;
-        outputContext.Response.Headers.ContentLength = size;
-        await restResponse.Content.ReadAsStreamAsync(cancellationToken).Result.CopyToAsync(outputContext.Response.Body,81920, cancellationToken);
+    public static async Task<GraphQlGetClass> GetLakeInfo(string path, CancellationToken cancellationToken)
+    {
+        GraphQlGetClass? graphQlResult = new GraphQlGetClass(){Data = new GraphQlData()};
+        try
+        {
+            using (HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.github.com/graphql"))
+            {
+                httpRequest.Content = new StringContent(_getInfoGraphQlQuery(path));
+                HttpResponseMessage graphQlResponse = await HttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                
+                if (graphQlResponse.StatusCode != HttpStatusCode.OK)
+                {
+                    graphQlResult.StatusCode = 500;
+                    return graphQlResult;
+                }
+                graphQlResult = JsonSerializer.Deserialize<GraphQlGetClass>(await graphQlResponse.Content.ReadAsStringAsync(cancellationToken));
+                if (graphQlResult?.Data.Repository?.Object is not null)
+                {
+                    graphQlResult.StatusCode = (short)graphQlResponse.StatusCode;
+                    return graphQlResult;
+                }
+            }
+
+            
+            graphQlResult ??= new GraphQlGetClass() { Data = new GraphQlData() };
+            graphQlResult.StatusCode = 404;
+            return graphQlResult;
+
+        }
+        catch(OperationCanceledException)
+        {
+            graphQlResult ??= new GraphQlGetClass() { Data = new GraphQlData() };
+            graphQlResult.StatusCode = 499;
+            return graphQlResult;
+        }
+        
     }
     
-    public static async Task<RestPutClass> PutLakeRequest(string path, string content, string? sha = null, CancellationToken? cancellationToken = null)
+    public static async Task<RestPutClass> PutLakeRequest(string path, Stream contentStream, long? contentLenght, CancellationToken cancellationToken, string? sha = null)
     {
         try
         {
-
-            HttpResponseMessage resp;
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Put, _lakeUrl + path);
             if (sha is null)
             {
-                resp = await HttpClient.PutAsync(_lakeUrl+path, new StringContent( $"{{\"message\":\"ci: add {path}\",\"committer\":{{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"}},\"content\":\"{content}\"}}"), cancellationToken??CancellationToken.None);
+                httpRequest.Content = new StreamCircumfixContent(
+                    [.. _modifyLakePrefix[0], .. Encoding.UTF8.GetBytes("add " + path), .. _modifyLakePrefix[1]],
+                    contentStream,
+                    [.. "\"}"u8], contentLenght);
             }
             else
             {
-                resp = await HttpClient.PutAsync(_lakeUrl+path, new StringContent( $"{{\"message\":\"ci: add {path}\",\"committer\":{{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"}},\"content\":\"{content}\",\"sha\":\"{sha}\"}}"), cancellationToken??CancellationToken.None);
+                httpRequest.Content = new StreamCircumfixContent(
+                    [.. _modifyLakePrefix[0], .. Encoding.UTF8.GetBytes("modify " + path), .. _modifyLakePrefix[1]],
+                    contentStream,
+                    [.. "\",\"sha\":\""u8, .. Encoding.UTF8.GetBytes(sha), .. "\"}"u8], contentLenght);
             }
             
+            HttpResponseMessage response = await HttpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            
             RestPutClass? output;
-            if (resp.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
+            if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
             {
                 try
                 {
-                    output = JsonSerializer.Deserialize<RestPutClass>(await resp.Content.ReadAsStringAsync()) ?? new RestPutClass { ErrorMessage = "Json deserialization returned null" };
+                    output = JsonSerializer.Deserialize<RestPutClass>(await response.Content.ReadAsStringAsync(cancellationToken)) ?? new RestPutClass { ErrorMessage = "Json deserialization returned null" };
+                    output.StatusCode = (short)response.StatusCode;
                 }
                 catch (JsonException e)
                 {
                     Logger.LogError(e.Message);
                     output = new RestPutClass
                     {
-                        ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
+                        StatusCode = 500,
                         ErrorMessage = "Json internal deserialization failed"
                     };
                 }
@@ -194,67 +245,71 @@ public static partial class Lake
             {
                 output = new RestPutClass
                 {
-                    ErrorCode = (short)resp.StatusCode,
-                    ErrorMessage = await resp.Content.ReadAsStringAsync()
+                    StatusCode = (short)response.StatusCode,
+                    ErrorMessage = await response.Content.ReadAsStringAsync(cancellationToken)
                 };
             }
             
             return output;
             
         }
-        catch (OperationCanceledException e)
+        catch (OperationCanceledException)
         {
             return new RestPutClass()
             {
-                ErrorCode = 499,
+                StatusCode = 499,
                 ErrorMessage = "Client Closed Request"
             };
         }
     }
 
-    public static async Task<RestDeleteClass> DelLakeRequest(string path, string sha, CancellationToken? cancellationToken = null)
+    public static async Task<RestDeleteClass> DelLakeRequest(string path, string sha, CancellationToken cancellationToken)
     {
         try
         {
 
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Delete, _lakeUrl+path);
-            request.Content = new StringContent($"{{\"message\":\"ci: Delete {path}\",\"committer\":{{\"name\":\"gitCloud-api\",\"email\":\"gitcloud@example.com\"}},\"sha\":\"{sha}\"}}");
-            HttpResponseMessage resp = await HttpClient.SendAsync(request,cancellationToken?? CancellationToken.None);
+            request.Content = new ByteArrayContent([
+                .. _modifyLakePrefix[0], .. Encoding.UTF8.GetBytes("delete " + path), .._modifyLakePrefix[1], .."\",\"sha\":\""u8, ..Encoding.UTF8.GetBytes(sha), .."\"}"u8
+            ]);
+            HttpResponseMessage resp = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,cancellationToken);
             
             RestDeleteClass? output;
             if (resp.StatusCode is HttpStatusCode.OK)
             {
-                try
-                {
-                    output = JsonSerializer.Deserialize<RestDeleteClass>(await resp.Content.ReadAsStringAsync()) ?? new RestDeleteClass { ErrorMessage = "Json deserialization returned null" };
-                }
-                catch (JsonException e)
-                {
-                    Logger.LogError(e.Message);
-                    output = new RestDeleteClass
-                    {
-                        ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
-                        ErrorMessage = "Json internal deserialization failed"
-                    };
-                }
+                output = new RestDeleteClass();
+
+                // try
+                // {
+                //     output = JsonSerializer.Deserialize<RestDeleteClass>(await resp.Content.ReadAsStringAsync()) ?? new RestDeleteClass { ErrorMessage = "Json deserialization returned null" };
+                // }
+                // catch (JsonException e)
+                // {
+                //     Logger.LogError(e.Message);
+                //     output = new RestDeleteClass
+                //     {
+                //         ErrorCode = (short)LakeErrorCodes.InternalErrorWhileParsingJson,
+                //         ErrorMessage = "Json internal deserialization failed"
+                //     };
+                // }
             }
             else
             {
                 output = new RestDeleteClass
                 {
-                    ErrorCode = (short)resp.StatusCode,
-                    ErrorMessage = await resp.Content.ReadAsStringAsync()
+                    StatusCode = (short)resp.StatusCode,
+                    ErrorMessage = await resp.Content.ReadAsStringAsync(cancellationToken)
                 };
             }
             
             return output;
             
         }
-        catch (OperationCanceledException e)
+        catch (OperationCanceledException)
         {
             return new RestDeleteClass()
             {
-                ErrorCode = 499,
+                StatusCode = 499,
                 ErrorMessage = "Client Closed Request"
             };
         }
@@ -289,7 +344,7 @@ public static partial class Lake
                     {
                         entitiesArray[i] = new GitCloudGetResponseClass
                         {
-                            Type = cachedItem.Entities[name].Sha is null ? "dir" : "file",
+                            Type = cachedItem.Entities![name].Sha is null ? "dir" : "file",
                             Name = name,
                             ByteSize = cachedItem.Entities[name].ByteSize ,
                             Entities = cachedItem.Entities[name].Sha is null ? [] : null
@@ -308,36 +363,37 @@ public static partial class Lake
                 }
                 else //? Blob
                 {
-                    await GetLakeSendRawDataBlob(path, context, cachedItem.ByteSize, cache, cancellationToken);
+                    context.Response.Headers.ContentLength = cachedItem.ByteSize;
+                    context.Response.StatusCode = 200;
+                    RestGetRawDataInfo info = await GetLakeRawDataBlob(path, context.Response.Body, cancellationToken);
+                    
+                    if (info.StatusCode != 200)
+                    {
+                        context.Response.Headers.ContentLength = 0;
+                        context.Response.StatusCode = (int)info.StatusCode!;
+                        if(info.StatusCode == 404)
+                        {
+                            cache.DeleteCachedItemByPath(path);
+                        }
+                    }
                 }
 
                 return;
             }
             
-            GraphQlGetClass? graphQlResult;
-            using (HttpResponseMessage graphQlResponse = await HttpClient.PostAsync("https://api.github.com/graphql", new StringContent(_getGraphQlQuery(path)), cancellationToken))
+            GraphQlGetClass graphQlResult = await GetLakeInfo(path, cancellationToken);
+            if(graphQlResult.StatusCode != 200 )
             {
-                if (graphQlResponse.StatusCode != HttpStatusCode.OK)
-                {
-                    context.Response.StatusCode = 500;
-                    return;
-                }
-                graphQlResult = JsonSerializer.Deserialize<GraphQlGetClass>(await graphQlResponse.Content.ReadAsStringAsync(cancellationToken));
-            }
-            
-            if(graphQlResult?.Data.Repository?.Object is null)
-            {
-                context.Response.StatusCode = 404;
+                context.Response.StatusCode = graphQlResult.StatusCode;
                 return;
             }
-
             
-            
-            switch (graphQlResult.Data.Repository.Object.TypeName)
+            switch (graphQlResult.Data.Repository!.Object!.TypeName)
             {
                 case "Blob":
-
-                    Task sendDataTask = GetLakeSendRawDataBlob(path, context, graphQlResult.Data.Repository.Object.ByteSize, cache, cancellationToken);
+                    context.Response.Headers.ContentLength = graphQlResult.Data.Repository.Object.ByteSize;
+                    context.Response.StatusCode = 200;
+                    Task<RestGetRawDataInfo> sendDataTask = GetLakeRawDataBlob(path, context.Response.Body, cancellationToken);
                     
                     await cache.EnqueueAsync(new LakeCacheNewItem
                     {
@@ -346,9 +402,13 @@ public static partial class Lake
                         ByteSize = graphQlResult.Data.Repository.Object.ByteSize
                     });
 
-                    await sendDataTask;
+                    RestGetRawDataInfo info = await sendDataTask;
+                    if (info.StatusCode != 200)
+                    {
+                        context.Response.Headers.ContentLength = 0;
+                        context.Response.StatusCode = (int)info.StatusCode!;
+                    }
                     return;
-                    break;
                 
                 case "Tree":
                 {
@@ -397,17 +457,16 @@ public static partial class Lake
                     context.Response.ContentLength = output.Length;
                     await context.Response.Body.WriteAsync(output, cancellationToken);
                     return;
-                    break;
                 }
             }
             
             context.Response.StatusCode = 500;
-            return;
+            
         }
         catch (OperationCanceledException)
         {
             context.Response.StatusCode = 499;
-            return;
+            
         }
     }
 
@@ -424,12 +483,11 @@ public static partial class Lake
 
         try
         {
-            Task<string> bodyContentTask = (new StreamReader(context.Request.Body, encoding: Encoding.UTF8)).ReadToEndAsync(cancellationToken);
-
             RestPutClass? output = (RestPutClass?)await modifyQueue.TryEnqueueTaskAsync(new LakePutRequest
             {
-                BodyContentTask = bodyContentTask,
                 Path = path,
+                ContentStream = context.Request.Body,
+                ContentLength = context.Request.ContentLength, 
                 CancellationToken = cancellationToken
             });
 
@@ -438,7 +496,7 @@ public static partial class Lake
                 context.Response.StatusCode = 429;
                 return "Too Many Requests";
             }
-            context.Response.StatusCode = (output.ErrorCode ?? 200);
+            context.Response.StatusCode = (output.StatusCode ?? 200);
             if(output.ErrorMessage is not null)
             {
                 return output.ErrorMessage!;
@@ -447,7 +505,7 @@ public static partial class Lake
             return "";
 
         }
-        catch (OperationCanceledException e)
+        catch (OperationCanceledException)
         {
             context.Response.StatusCode = 499;
             return "Client Closed Request";
@@ -477,7 +535,7 @@ public static partial class Lake
             return "Too Many Requests";
         }
         
-        context.Response.StatusCode = (output.ErrorCode ?? 200);
+        context.Response.StatusCode = (output.StatusCode ?? 200);
         if(output.ErrorMessage is not null)
         {
             return output.ErrorMessage!;

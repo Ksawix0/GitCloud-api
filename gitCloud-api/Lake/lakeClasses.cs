@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Net;
+using System.Text.Json.Serialization;
 
 namespace gitCloud_api;
 
@@ -8,7 +9,7 @@ public static partial class Lake
     public interface IResponseRest
     {
         [JsonIgnore]
-        public short? ErrorCode { get; set; }
+        public short? StatusCode { get; set; }
         
         [JsonIgnore]
         public string? ErrorMessage { get; set; }
@@ -57,9 +58,16 @@ public static partial class Lake
         public RestLinksClass RestLinks { get; set; }
         
         [JsonIgnore]
-        public short? ErrorCode { get; set; }
+        public short? StatusCode { get; set; }
         
         [JsonIgnore]
+        public string? ErrorMessage { get; set; }
+    }
+
+    public class RestGetRawDataInfo : IResponseRest
+    {
+        public long? Length { get; set; }
+        public short? StatusCode { get; set; }
         public string? ErrorMessage { get; set; }
     }
     
@@ -71,12 +79,12 @@ public static partial class Lake
         [JsonRequired]
         public RestContentClass RestContent { get; set; }
         
-        [JsonPropertyName("commit")]
-        [JsonRequired]
-        public RestCommitClass RestCommit { get; set; }
+        // [JsonPropertyName("commit")]
+        // [JsonRequired]
+        // public RestCommitClass RestCommit { get; set; }
         
         [JsonIgnore]
-        public short? ErrorCode { get; set; }
+        public short? StatusCode { get; set; }
         
         [JsonIgnore]
         public string? ErrorMessage { get; set; }
@@ -85,14 +93,14 @@ public static partial class Lake
     //? del
     public class RestDeleteClass: IResponseRest
     {
-        [JsonPropertyName("content")]
-        public RestContentClass? Content { get; set; }
+        // [JsonPropertyName("content")]
+        // public RestContentClass? Content { get; set; }
         
-        [JsonPropertyName("commit")]
-        public RestCommitClass RestCommit { get; set; } = null!;
+        // [JsonPropertyName("commit")]
+        // public RestCommitClass RestCommit { get; set; } = null!;
         
         [JsonIgnore]
-        public short? ErrorCode { get; set; }
+        public short? StatusCode { get; set; }
         
         [JsonIgnore]
         public string? ErrorMessage { get; set; }
@@ -112,35 +120,35 @@ public static partial class Lake
     
     public class RestContentClass
     {
-        [JsonPropertyName("type")]
-        public string Type { get; set; }
-        
-        [JsonPropertyName("name")]
-        public string Name { get; set; }
-
-        [JsonPropertyName("path")]
-        public string Path { get; set; }
+        // [JsonPropertyName("type")]
+        // public string Type { get; set; }
+        //
+        // [JsonPropertyName("name")]
+        // public string Name { get; set; }
+        //
+        // [JsonPropertyName("path")]
+        // public string Path { get; set; }
 
         [JsonPropertyName("sha")]
         public string Sha { get; set; }
 
         [JsonPropertyName("size")]
         public int Size { get; set; }
-
-        [JsonPropertyName("url")]
-        public string Url { get; set; }
-
-        [JsonPropertyName("html_url")]
-        public string HtmlUrl { get; set; }
-
-        [JsonPropertyName("git_url")]
-        public string GitUrl { get; set; }
-
-        [JsonPropertyName("download_url")]
-        public string? DownloadUrl { get; set; }
-
-        [JsonPropertyName("_links")]
-        public RestLinksClass RestLinks { get; set; }
+        //
+        // [JsonPropertyName("url")]
+        // public string Url { get; set; }
+        //
+        // [JsonPropertyName("html_url")]
+        // public string HtmlUrl { get; set; }
+        //
+        // [JsonPropertyName("git_url")]
+        // public string GitUrl { get; set; }
+        //
+        // [JsonPropertyName("download_url")]
+        // public string? DownloadUrl { get; set; }
+        //
+        // [JsonPropertyName("_links")]
+        // public RestLinksClass RestLinks { get; set; }
     }
 
     public class RestCommitClass
@@ -226,14 +234,42 @@ public static partial class Lake
         [JsonPropertyName("verified_at")]
         public string? VerifiedAt { get; set; }
     }
+
+    public class StreamCircumfixContent(byte[] prefix, Stream readStream, byte[] suffix, long? streamLength) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            _ = SerializeToStreamAsync(stream, context, CancellationToken.None);
+            return Task.CompletedTask;
+        }
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        {
+            await stream.WriteAsync(prefix, cancellationToken);
+            await readStream.CopyToAsync(stream, cancellationToken);
+            await stream.WriteAsync(suffix, cancellationToken);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            if (streamLength is null)
+            {
+                length = 0;
+                return false;
+            }
+            length = (long)(prefix.Length + streamLength + suffix.Length);
+            return true;
+        }
+    }
     
     //? graphQl api
     public class GraphQlGetClass
     {
-        
-        
         [JsonPropertyName("data")]
         public required GraphQlData Data { get; set; }
+        
+        [JsonIgnore]
+        public short StatusCode {get; set;}
     }
     
     public class GraphQlData

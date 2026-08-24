@@ -8,28 +8,28 @@ public static partial class Db
     public class DbSync : BackgroundService
     {
         private const ushort UploadDelayInMinutes = 60;
-
-        public static async Task UploadUsersUpstream()
+        public static async Task UploadUsersUpstream(CancellationToken cancellationToken)
         {
-            RestGetClass restGet =  await GetLakeRequest(GitCloudDbFilePaths.UserFile);
-            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.UserFile,
-                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.Users))), restGet.Sha);
-            if (restPutClass.ErrorCode != null)
+            GraphQlGetClass restGet =  await GetLakeInfo(GitCloudDbFilePaths.UserFile, cancellationToken);
+            MemoryStream userStream = new MemoryStream(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.Users)))));
+            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.UserFile, userStream, userStream.Length, cancellationToken, restGet.Data.Repository.Object.Oid);
+            if (restPutClass.StatusCode != 200)
             {
-                Logger.LogError("db sync error: {message}",  restPutClass.ErrorMessage);
+                Logger.LogError("db sync error, status code: {code}",  restPutClass.StatusCode);
             }
         }
         
-        public static async Task UploadTokensUpstream()
+        public static async Task UploadTokensUpstream(CancellationToken cancellationToken)
         {
             GitCloudDb.RefreshTokens.RemoveAll(token => token.ExpiresAt < DateTime.Now);
             
-            RestGetClass restGet =  await GetLakeRequest(GitCloudDbFilePaths.RefreshTokenFile);
-            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.RefreshTokenFile,
-                Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens))), restGet.Sha);
-            if (restPutClass.ErrorCode != null)
+            GraphQlGetClass restGet =  await GetLakeInfo(GitCloudDbFilePaths.RefreshTokenFile, cancellationToken);
+            MemoryStream tokenStream = new MemoryStream(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens)))));
+            RestPutClass restPutClass = await PutLakeRequest(GitCloudDbFilePaths.RefreshTokenFile, tokenStream, tokenStream.Length, cancellationToken, restGet.Data.Repository.Object.Oid);
+            
+            if (restPutClass.StatusCode != 200)
             {
-                Logger.LogError("db sync error: {message}",  restPutClass.ErrorMessage);
+                Logger.LogError("db sync error, status code: {code}",  restPutClass.StatusCode);
             }
         }
         
@@ -39,8 +39,8 @@ public static partial class Db
             await Task.Delay(TimeSpan.FromMinutes(UploadDelayInMinutes), cancellationToken);
             while (!cancellationToken.IsCancellationRequested)
             {
-                await UploadUsersUpstream();
-                await UploadTokensUpstream();
+                await UploadUsersUpstream(cancellationToken);
+                await UploadTokensUpstream(cancellationToken);
                 await Task.Delay(TimeSpan.FromMinutes(UploadDelayInMinutes), cancellationToken);
             }
         }

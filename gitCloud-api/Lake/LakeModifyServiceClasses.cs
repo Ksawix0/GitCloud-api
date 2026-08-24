@@ -11,7 +11,8 @@ public static class LakeModifyServiceClasses
 
     public class LakePutRequest : LakeModifyRequest
     {
-        public required Task<string> BodyContentTask;
+        public required Stream ContentStream;
+        public long? ContentLength;
     }
     
     public class LakeDelRequest : LakeModifyRequest { }

@@ -39,9 +39,9 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            FullLakeModifyRequest modifyRequest = await modifyQueue.DequeueAsync(stoppingToken);
+            FullLakeModifyRequest fullModifyRequest = await modifyQueue.DequeueAsync(stoppingToken);
 
-            switch (modifyRequest.ModifyRequest)
+            switch (fullModifyRequest.ModifyRequest)
             {
                 //? Put
                 case LakePutRequest lakePutRequest:
@@ -50,83 +50,92 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
 
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
                     ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakePutRequest.Path);
-                    
-                    if (Unsafe.IsNullRef(in cachedItem))
+                    try
                     {
-                        var lakeContent = await GetLakeRequest(lakePutRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
-        
-                        if (lakeContent.ErrorCode != null)
+                        if (Unsafe.IsNullRef(in cachedItem))
                         {
-                            output.ErrorCode = 500;
-                            if (lakeContent.ErrorCode < 0)
+                            GraphQlGetClass itemInfo =
+                                await GetLakeInfo(lakePutRequest.Path, lakePutRequest.CancellationToken);
+
+                            if (itemInfo.StatusCode != 200)
                             {
-                                output.ErrorMessage = lakeContent.ErrorMessage!;
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
-                            } 
-                            if (lakeContent.ErrorCode == 499)
-                            {
-                                output.ErrorCode = lakeContent.ErrorCode;
-                                output.ErrorMessage = lakeContent.ErrorMessage ?? "";
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
+                                output.StatusCode = 500;
+                                if (itemInfo.StatusCode == 499)
+                                {
+                                    output.StatusCode = itemInfo.StatusCode;
+                                    output.ErrorMessage = "Client Closed Request";
+                                    fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                    break;
+                                }
+
+                                if (itemInfo.StatusCode != 404)
+                                {
+                                    output.ErrorMessage = "Github GET Request Error\nError Code: " + itemInfo.StatusCode;
+                                    fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                    break;
+                                }
+
+                                output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
+                                    lakePutRequest.ContentLength, lakePutRequest.CancellationToken);
+                                output.StatusCode = 201;
+
                             }
-                            if (lakeContent.ErrorCode != 404)
+                            else
                             {
-                                output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lakeContent.ErrorCode, "\nMessage: \n", lakeContent.ErrorMessage);
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
+                                output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
+                                    lakePutRequest.ContentLength, lakePutRequest.CancellationToken,
+                                    itemInfo.Data.Repository.Object.Oid);
+                                output.StatusCode = 200;
                             }
-                            
-                            output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, cancellationToken: modifyRequest.ModifyRequest.CancellationToken);
-                            output.ErrorCode = 201;
-                            
                         }
                         else
                         {
-                            output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, lakeContent.Sha, modifyRequest.ModifyRequest.CancellationToken);
-                            output.ErrorCode = 200;
+                            string? cachedSha = cachedItem.Sha;
+                            output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
+                                lakePutRequest.ContentLength, lakePutRequest.CancellationToken, cachedSha);
+                            output.StatusCode = 200;
                         }
-                    }
-                    else
-                    {
-                        string? cachedSha = cachedItem.Sha;
-                        output = await PutLakeRequest(lakePutRequest.Path, await lakePutRequest.BodyContentTask, cachedSha, modifyRequest.ModifyRequest.CancellationToken);
-                        output.ErrorCode = 200;
-                    }
 
-                    
-                    if (output.ErrorCode != null && output.ErrorCode != 200 && output.ErrorCode != 201)
-                    {
-            
-                        if (output.ErrorCode < 0)
+
+                        if (output.StatusCode != null && output.StatusCode != 200 && output.StatusCode != 201)
                         {
-                            output.ErrorCode = 500;
-                            modifyRequest.TaskCompletionSource.SetResult(output);
+
+                            if (output.StatusCode < 0)
+                            {
+                                output.StatusCode = 500;
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+
+                            if (output.StatusCode == 499)
+                            {
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+
+                            output.StatusCode = 500;
+                            output.ErrorMessage = "Github PUT Request Error\nError Code: " + output.StatusCode;
+                            fullModifyRequest.TaskCompletionSource.SetResult(output);
                             break;
                         }
-                        if (output.ErrorCode == 499)
-                        {
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
-                        }
-                        
-                        output.ErrorCode = 500;
-                        output.ErrorMessage = string.Join("", "Github PUT Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
-                        modifyRequest.TaskCompletionSource.SetResult(output);
-                        break;
-                    }
 
-                    _pendingCacheRequest = new TaskCompletionSource();
-                    await cache.EnqueueAsync(new LakeCacheNewItem
+                        _pendingCacheRequest = new TaskCompletionSource();
+                        await cache.EnqueueAsync(new LakeCacheNewItem
+                        {
+                            Path = lakePutRequest.Path,
+                            Sha = output.RestContent.Sha,
+                            ByteSize = output.RestContent.Size,
+                            Entities = null,
+                            TaskCompletionSource = _pendingCacheRequest
+                        });
+
+                        fullModifyRequest.TaskCompletionSource.SetResult(output);
+                    }
+                    catch(OperationCanceledException)
                     {
-                        Path = lakePutRequest.Path,
-                        Sha = output.RestContent.Sha,
-                        Entities = null,
-                        TaskCompletionSource = _pendingCacheRequest
-                    });
-                    
-                    modifyRequest.TaskCompletionSource.SetResult(output);
+                        output.StatusCode = 499;
+                        fullModifyRequest.TaskCompletionSource.SetResult(output);
+                    }
                     break;
                 }
                 
@@ -138,88 +147,85 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                     _pendingCacheRequest?.Task.WaitAsync(stoppingToken);
                     ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(lakeDelRequest.Path);
 
-                    if (Unsafe.IsNullRef(in cachedItem))
+                    try
                     {
-                        RestGetClass lake = await GetLakeRequest(lakeDelRequest.Path, modifyRequest.ModifyRequest.CancellationToken);
-                        if (lake.ErrorCode != null)
+                        
+                        if (Unsafe.IsNullRef(in cachedItem))
                         {
-                            if (lake.ErrorCode == 404)
-                            {
-                                output.ErrorCode = lake.ErrorCode;
-                                output.ErrorMessage = "Not Found";
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
-                            }
-                            if (lake.ErrorCode == 499)
-                            {
-                                output.ErrorCode = lake.ErrorCode;
-                                output.ErrorMessage = lake.ErrorMessage ?? "";
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
-                            }
-                
-                            output.ErrorCode = 500;
-                            if (lake.ErrorCode < 0)
-                            {
-                                output.ErrorMessage = lake.ErrorMessage!;
-                                modifyRequest.TaskCompletionSource.SetResult(output);
-                                break;
-                            }
-                
-                            output.ErrorMessage = string.Join("", "Github GET Request Error\nError Code: ", lake.ErrorCode, "\nMessage: \n", lake.ErrorMessage);
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
-                        }
+                            GraphQlGetClass itemInfo = await GetLakeInfo(lakeDelRequest.Path, lakeDelRequest.CancellationToken);
 
-                        if (lake.Type == "dir")
+                            if (itemInfo.StatusCode != 200 || itemInfo.Data.Repository?.Object is null)
+                            {
+                                if (itemInfo.StatusCode == 404)
+                                {
+                                    output.StatusCode = itemInfo.StatusCode;
+                                    output.ErrorMessage = "Not Found";
+                                    fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                    break;
+                                }
+                                if (itemInfo.StatusCode == 499)
+                                {
+                                    output.StatusCode = itemInfo.StatusCode;
+                                    output.ErrorMessage = "Client Closed Request";
+                                    fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                    break;
+                                }
+                    
+                                output.StatusCode = 500;
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                                
+                            }
+                                
+                            if (itemInfo.Data.Repository.Object.TypeName == "Tree")
+                            {
+                                output.StatusCode = 409;
+                                output.ErrorMessage = "Cannot delete a folder";
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                
+                            output = await DelLakeRequest(lakeDelRequest.Path, itemInfo.Data.Repository.Object.Oid, fullModifyRequest.ModifyRequest.CancellationToken);
+                        }
+                        else
                         {
-                            output.ErrorCode = 409;
-                            output.ErrorMessage = "Cannot delete a folder";
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
+                            if (cachedItem.Sha == null)
+                            {
+                                output.StatusCode = 409;
+                                output.ErrorMessage = "Cannot delete a folder";
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                            output = await DelLakeRequest(lakeDelRequest.Path, cachedItem.Sha, fullModifyRequest.ModifyRequest.CancellationToken);
                         }
             
-                        output = await DelLakeRequest(lakeDelRequest.Path, lake.Sha, modifyRequest.ModifyRequest.CancellationToken);
-                    }
-                    else
-                    {
-                        if (cachedItem.Sha == null)
-                        {
-                            output.ErrorCode = 409;
-                            output.ErrorMessage = "Cannot delete a folder";
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
-                        }
-                        output = await DelLakeRequest(lakeDelRequest.Path, cachedItem.Sha, modifyRequest.ModifyRequest.CancellationToken);
-                    }
-        
-        
-                    if (output.ErrorCode != null)
-                    {
-                        output.ErrorCode = 500;
-                        if (output.ErrorCode < 0)
-                        {
-                            output.ErrorMessage = output.ErrorMessage!;           
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
-                        }
-                        if (output.ErrorCode == 499)
-                        {
-                            modifyRequest.TaskCompletionSource.SetResult(output);
-                            break;
-                        }
             
-                        output.ErrorMessage = string.Join("", "Github DEL Request Error\nError Code: ", output.ErrorCode, "\nMessage: \n", output.ErrorMessage);
+                        if (output.StatusCode != null)
+                        {
+                            output.StatusCode = 500;
+                            if (output.StatusCode == 499)
+                            {
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                
+                            output.ErrorMessage = "Github DEL Request Error\nError Code: " + output.StatusCode;
+                        }
+                        
+                        cache.DeleteCachedItemByPath(lakeDelRequest.Path);
+                        
+                        fullModifyRequest.TaskCompletionSource.SetResult(output);
                     }
-                    
-                    cache.DeleteCachedItemByPath(lakeDelRequest.Path);
-                    
-                    modifyRequest.TaskCompletionSource.SetResult(output);
+                    catch(OperationCanceledException)
+                    {
+                        output.StatusCode = 499;
+                        fullModifyRequest.TaskCompletionSource.SetResult(output);
+                    }
                     break;
                 }
                 
                 default:
-                    throw new NotSupportedException($"Type {modifyRequest.GetType()} not supported");
+                    throw new NotSupportedException($"Type {fullModifyRequest.GetType()} not supported");
             }
         }
     }
