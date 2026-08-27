@@ -28,7 +28,7 @@ public static partial class Db
             MemoryStream usersStream = new MemoryStream(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.Users)))));
             RestPutClass restPutResponse = PutLakeRequest(GitCloudDbFilePaths.UserFile,usersStream, usersStream.Length, CancellationToken.None).Result;
             usersStream.Dispose();
-            if (restPutResponse.StatusCode != null)
+            if (restPutResponse.StatusCode != 201)
             {
                 throw new Exception($"\nPut error while initializing .gcpasswd file\nError Code: {(short)getResponse.StatusCode}");
             }
@@ -39,7 +39,7 @@ public static partial class Db
             RestGetRawDataInfo dataInfo = GetLakeRawDataBlob(GitCloudDbFilePaths.UserFile, usersStream, CancellationToken.None).Result;
             if (dataInfo.StatusCode != 200)
             {
-                throw new Exception($"\nPut error while initializing .gcpasswd file\nError Code: {(short)getResponse.StatusCode}");
+                throw new Exception($"\nPut error while initializing .gcpasswd file\nError Code: {(short)dataInfo.StatusCode}");
             }
 
             usersStream.Position = 0;
@@ -51,7 +51,7 @@ public static partial class Db
 
         
         //? Token file init
-        getResponse = GetLakeInfo(GitCloudDbFilePaths.UserFile, CancellationToken.None).Result;
+        getResponse = GetLakeInfo(GitCloudDbFilePaths.RefreshTokenFile, CancellationToken.None).Result;
         if (getResponse.StatusCode != 200)
         {
             if (getResponse.StatusCode != 404)
@@ -64,7 +64,7 @@ public static partial class Db
             MemoryStream tokenStream = new MemoryStream(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes(GitCloudDbSerializer.FileSerializer(GitCloudDb.RefreshTokens)))));
             RestPutClass restPutResponse = PutLakeRequest(GitCloudDbFilePaths.RefreshTokenFile, tokenStream, tokenStream.Length, CancellationToken.None).Result;
             tokenStream.Dispose();
-            if (restPutResponse.StatusCode != null)
+            if (restPutResponse.StatusCode != 201)
             {
                 throw new Exception($"\nPut error while initializing .gcrefreshtokens file\nError Code: {(short)getResponse.StatusCode}");
             }
@@ -74,7 +74,7 @@ public static partial class Db
             RestGetRawDataInfo dataInfo = GetLakeRawDataBlob(GitCloudDbFilePaths.RefreshTokenFile, tokenStream, CancellationToken.None).Result;
             if (dataInfo.StatusCode != 200)
             {
-                throw new Exception($"\nPut error while initializing .gcrefreshtokens file\nError Code: {(short)getResponse.StatusCode}");
+                throw new Exception($"\nPut error while initializing .gcrefreshtokens file\nError Code: {(short)dataInfo.StatusCode}");
             }
             tokenStream.Position = 0;
             GitCloudDb.RefreshTokens = GitCloudDbSerializer.FileDeserializer<GitCloudRefreshToken>(new StreamReader(tokenStream).ReadToEnd());
