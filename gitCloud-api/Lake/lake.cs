@@ -333,7 +333,7 @@ public static partial class Lake
             
             ref readonly LakeCacheItem cachedItem = ref cache.TryGetCachedItemByPath(path);
 
-            if (!Unsafe.IsNullRef(in cachedItem))
+            if (!Unsafe.IsNullRef(in cachedItem) && cachedItem.Known)
             {
                 //? not blob
                 if (cachedItem.Sha is null && cachedItem.Entities != null)
@@ -427,7 +427,9 @@ public static partial class Lake
                         {
                             entities.Add(entry.Name, new LakeCacheItem
                             {
+                                ByteSize = entry.Object.ByteSize,
                                 Sha = entry.Object.Oid,
+                                Known = true
                             });
                         }
                     }

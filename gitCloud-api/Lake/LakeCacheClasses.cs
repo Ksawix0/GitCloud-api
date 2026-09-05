@@ -7,6 +7,7 @@ public static class LakeCacheClasses
         public string? Sha;
         public long? ByteSize;
         public Dictionary<string, LakeCacheItem>? Entities;
+        public bool Known;
     }
     
     public class LakeCacheNewItem

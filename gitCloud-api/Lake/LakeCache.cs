@@ -10,7 +10,8 @@ public class LakeCache(int capacity)
     public LakeCacheItem CacheRoot = new LakeCacheItem
     {
         Sha = null,
-        Entities = new Dictionary<string, LakeCacheItem>()
+        Entities = new Dictionary<string, LakeCacheItem>(),
+        Known = false
     };
     
     private readonly Channel<LakeCacheNewItem> _queue = Channel.CreateBounded<LakeCacheNewItem>(new BoundedChannelOptions(capacity) {
@@ -91,12 +92,16 @@ public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
                         cacheItem = new LakeCacheItem()
                         {
                             Sha = null,
-                            Entities = new Dictionary<string, LakeCacheItem>()
+                            Entities = new Dictionary<string, LakeCacheItem>(),
+                            Known = false
                         };
                     }
                 }
             }
+
+            cacheItem ??= new LakeCacheItem();
             
+            cacheItem.Known = true;
             if (request.Entities == null)
             {
                 cacheItem.Sha = request.Sha;
@@ -105,9 +110,10 @@ public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
             }
             else 
             {
+                cacheItem.Entities ??= new Dictionary<string, LakeCacheItem>();
                 foreach (KeyValuePair<string, LakeCacheItem> item in request.Entities)
                 {
-                    if (cacheItem.Entities.ContainsKey(item.Key) && cacheItem.Entities[item.Key].Entities is not null)
+                    if (cacheItem.Entities.TryGetValue(item.Key, out LakeCacheItem? value) && value.Entities is not null)
                     {
                         continue;
                     }
