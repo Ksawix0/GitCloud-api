@@ -54,11 +54,18 @@ public static class Program
         builder.Services.AddHostedService<LakeCacheBackgroundService>();
         builder.Services.AddHostedService<LakeModifyBackgroundService>();
         
+        builder.Services.AddCors(options =>
+            options.AddPolicy(name: "gitCloudSite",
+                policy => { policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?? [])
+                    .AllowAnyMethod().AllowAnyHeader().Build(); }));
+        
         var app = builder.Build();
 
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseHttpsRedirection();
+
+        app.UseCors("gitCloudSite");
         
         GitCloud.Init(builder.Configuration.GetSection("GitCloudConfiguration"), jwtConfig, keys, validationParameters);
         app.MapGroup("/lake/").MapGitCloudLakeEndpoints();
