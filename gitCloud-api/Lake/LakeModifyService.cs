@@ -82,6 +82,14 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                             }
                             else
                             {
+                                if (itemInfo.Data.Repository?.Object?.TypeName != "Blob")
+                                {
+                                    output.StatusCode = 409;
+                                    output.ErrorMessage = lakePutRequest.Path + " is a directory" ;
+                                    fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                    break;
+                                }
+                                
                                 output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
                                     lakePutRequest.ContentLength, lakePutRequest.CancellationToken,
                                     itemInfo.Data.Repository.Object.Oid);
@@ -90,6 +98,14 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                         }
                         else
                         {
+                            if (cachedItem is { Entities: not null, Sha: null })
+                            {
+                                output.StatusCode = 409;
+                                output.ErrorMessage = lakePutRequest.Path + " is a directory" ;
+                                fullModifyRequest.TaskCompletionSource.SetResult(output);
+                                break;
+                            }
+                            
                             string? cachedSha = cachedItem.Sha;
                             output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
                                 lakePutRequest.ContentLength, lakePutRequest.CancellationToken, cachedSha);
