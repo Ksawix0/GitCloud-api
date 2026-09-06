@@ -63,7 +63,6 @@ public static class Program
 
         app.UseAuthentication();
         app.UseAuthorization();
-        app.UseHttpsRedirection();
 
         app.UseCors("gitCloudSite");
         
