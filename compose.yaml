@@ -1,0 +1,67 @@
+﻿name: gitCloud
+
+services:
+  api:
+    image: gitcloud-api
+    container_name: gitcloud-api
+    build:
+      context: .
+      dockerfile: gitCloud-api/Dockerfile
+    configs:
+      - source: GitCloudConfig
+        target: /app/appsettings.json
+      - source: GitCloudHttpsCertificate
+        target: /app/GitCloudHttpsCertificate.pfx
+    ports: 
+      - "5250:5250"
+      - "5550:5550"
+configs:
+  GitCloudConfig:
+    content: |
+      {
+      "Kestrel": {
+        "Endpoints": {
+          "HTTP": {
+            "Url": "http://localhost:5250"
+          },
+          HTTPS": {
+            "Url": "https://*:5550",
+            "Certificate": {
+              "Path": "./GitCloudHttpsCertificate.pfx",
+              "Password": "<password>"
+            }
+          }
+        }
+      },
+    
+      "Cors":{
+        "AllowedOrigins": [
+        ]
+      },
+    
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.AspNetCore": "Warning"
+        }
+      },
+    
+      "GitCloudConfiguration": {
+        "GitHubToken" : "",
+        "RepositoryName" : "",
+        "UserName" : "",
+        "CacheQueueCapacity" : 50,
+        "CacheModifyQueueCapacity" : 10
+      },
+    
+      "JWTConfiguration": {
+        "PrivateKeyBase64" : "",
+        "PublicKeyBase64" : "",
+        "Issuer": "GitCloudApi",
+        "Audience" : "",
+        "RefreshTokenExpirationTimeInDays": 30,
+        "AccessTokenExpirationTimeInMinutes": 60
+      }
+      }
+  GitCloudHttpsCertificate:
+    file: "<path to .pfx file>"
