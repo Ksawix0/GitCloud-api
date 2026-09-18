@@ -57,7 +57,7 @@ public static class Program
         builder.Services.AddCors(options =>
             options.AddPolicy(name: "gitCloudSite",
                 policy => { policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?? [])
-                    .AllowAnyMethod().AllowAnyHeader().Build(); }));
+                    .AllowAnyMethod().AllowAnyHeader().AllowCredentials().Build(); }));
         
         var app = builder.Build();
 
