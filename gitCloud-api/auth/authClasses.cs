@@ -96,7 +96,7 @@ public static partial class Auth
             return new SecurityTokenDescriptor
             {
                 Audience = _jwtConfig.Audience,
-                Expires = DateTime.UtcNow.AddDays(_jwtConfig.RefreshTokenExpirationTimeInDays),
+                Expires = DateTime.UtcNow.AddMinutes(_jwtConfig.AccessTokenExpirationTimeInMinutes),
                 Issuer = _jwtConfig.Issuer,
                 Subject = new ClaimsIdentity([
                     new Claim("sub" ,UserId.ToString()),

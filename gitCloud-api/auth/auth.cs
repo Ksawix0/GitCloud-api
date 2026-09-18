@@ -79,7 +79,8 @@ public static partial class Auth
         
         context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions
         {
-            SameSite = SameSiteMode.Strict,
+            SameSite = SameSiteMode.None,
+            Secure = true,
             HttpOnly = true,
             MaxAge = TimeSpan.FromDays(_jwtConfig.RefreshTokenExpirationTimeInDays).Subtract(TimeSpan.FromMinutes(1)),
         });
@@ -108,6 +109,13 @@ public static partial class Auth
             if (GitCloudDb.RefreshTokens.All(token => token.TokenId != Guid.Parse(tokenClaimsPrincipal.Claims.First(claim => claim.Type == "jti").Value)))
             {
                 GitCloudDb.RefreshTokens.RemoveAll(token => token.FamilyId == Guid.Parse(tokenClaimsPrincipal.Claims.First(claim => claim.Type == "family_jti").Value) );
+                context.Response.Cookies.Append("RefreshToken", "", new CookieOptions
+                {
+                    SameSite = SameSiteMode.None,
+                    Secure = true,
+                    HttpOnly = true,
+                    MaxAge = TimeSpan.MinValue,
+                });
                 context.Response.StatusCode = 401;
                 return;
             }
@@ -136,7 +144,8 @@ public static partial class Auth
     
         context.Response.Cookies.Append("RefreshToken", tokenHandler.WriteToken(token), new CookieOptions
         {
-            SameSite = SameSiteMode.Strict,
+            SameSite = SameSiteMode.None,
+            Secure = true,
             HttpOnly = true,
             MaxAge = TimeSpan.FromDays(_jwtConfig.RefreshTokenExpirationTimeInDays).Subtract(TimeSpan.FromMinutes(1)),
         });
