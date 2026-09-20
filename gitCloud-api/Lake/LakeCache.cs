@@ -113,9 +113,15 @@ public class LakeCacheBackgroundService(LakeCache lakeCache) : BackgroundService
                 cacheItem.Entities ??= new Dictionary<string, LakeCacheItem>();
                 foreach (KeyValuePair<string, LakeCacheItem> item in request.Entities)
                 {
-                    if (cacheItem.Entities.TryGetValue(item.Key, out LakeCacheItem? value) && value.Entities is not null)
+                    if (cacheItem.Entities.TryGetValue(item.Key, out LakeCacheItem? value))
                     {
-                        continue;
+                        //? if it is directory
+                        if (value.Entities is not null)
+                        {
+                            continue;
+                        }
+
+                        cacheItem.Entities[item.Key] = item.Value;
                     }
                     cacheItem.Entities.Add(item.Key, item.Value);
                 }

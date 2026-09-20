@@ -77,7 +77,6 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
 
                                 output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
                                     lakePutRequest.ContentLength, lakePutRequest.CancellationToken);
-                                output.StatusCode = 201;
 
                             }
                             else
@@ -93,7 +92,6 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                                 output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
                                     lakePutRequest.ContentLength, lakePutRequest.CancellationToken,
                                     itemInfo.Data.Repository.Object.Oid);
-                                output.StatusCode = 200;
                             }
                         }
                         else
@@ -109,7 +107,6 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                             string? cachedSha = cachedItem.Sha;
                             output = await PutLakeRequest(lakePutRequest.Path, lakePutRequest.ContentStream,
                                 lakePutRequest.ContentLength, lakePutRequest.CancellationToken, cachedSha);
-                            output.StatusCode = 200;
                         }
 
 
@@ -123,7 +120,7 @@ public class LakeModifyBackgroundService(LakeModifyQueue modifyQueue, LakeCache 
                                 break;
                             }
 
-                            if (output.StatusCode == 499)
+                            if (output.StatusCode is 499 or 422)
                             {
                                 fullModifyRequest.TaskCompletionSource.SetResult(output);
                                 break;

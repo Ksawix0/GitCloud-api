@@ -480,7 +480,7 @@ public static partial class Lake
         }
         else
         {
-            path = "/Lake" + path;
+            path = "/Lake/" + path.Trim('/');
         }
 
         try
@@ -522,7 +522,7 @@ public static partial class Lake
         }
         else
         {
-            path = "/Lake" + path;
+            path = "/Lake/" + path;
         }
         
         RestDeleteClass? output = (RestDeleteClass?)await modifyQueue.TryEnqueueTaskAsync(new LakeDelRequest
